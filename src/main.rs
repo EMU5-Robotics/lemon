@@ -6,15 +6,28 @@ fn main() {
 	create_logger();
 
 	let port = client::coprocessor::Port::open("/dev/ttyACM1").unwrap();
-	let _data = port.spawn_threaded();
-	// let res = client::coprocessor::rtt_test(&mut port, 1024, 1, 0xAA).unwrap();
-	// println!("{}", client::coprocessor::rtt_score(&res));
+	let data = port.spawn_threaded();
 
+	let mut i = 0;
 	loop {
-		// log::info!("recv: {:?}", data.recv_pkt_lock().unwrap());
-		// log::info!("send: {:?}\n", data.send_pkt_lock().unwrap());
+		let input = { data.recv_pkt_lock().unwrap().clone() };
+		let mut output = { data.send_pkt_lock().unwrap().clone() };
 
-		std::thread::sleep(Duration::from_millis(100));
+		let voltage = (input.controller_axes[1] as f64 / 127.0) * 12.0;
+		output.set_motor(0, (voltage * 1000.0) as i16);
+		output.set_motor(1, (voltage * -1000.0) as i16);
+
+		if i % 50 == 0 {
+			log::info!("recv: {:?}", input);
+			log::info!("send: {:?}\n", output);
+		}
+		i += 1;
+
+		{
+			*data.send_pkt_lock().unwrap() = output;
+		}
+
+		std::thread::sleep(Duration::from_millis(10));
 	}
 }
 
