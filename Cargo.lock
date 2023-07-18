@@ -359,6 +359,7 @@ dependencies = [
  "client",
  "fern",
  "log",
+ "protocol",
 ]
 
 [[package]]

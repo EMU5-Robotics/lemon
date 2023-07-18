@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 client = { path = "../transport/client", features = ["coprocessor"] }
+protocol = { path = "../transport/vex/protocol"  }
+
 
 log = "0.4"
 chrono = "0.4"
