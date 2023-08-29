@@ -5,14 +5,17 @@ edition = "2021"
 
 [dependencies]
 client = { path = "../transport/client", features = ["coprocessor"] }
-protocol = { path = "../transport/vex/protocol"  }
+common = { path = "../transport/common" }
+protocol = { path = "../transport/vex/protocol" }
 
 log = "0.4"
-chrono = "0.4"
-fern = { version = "0.6", features = ["colored"] }
 
 bno055 = { version = "0.3.3", features = ["std"] }
 embedded-hal = { version = "0.2.7", features = ["unproven"] }
 rppal = { version = "0.14.1", features = ["hal-unproven"] }
 
 nalgebra = { version = "0.32.3", features = ["libm-force", "alloc", "convert-mint"] }
+
+[[bin]]
+name = "imu"
+path = "src/imu.rs"

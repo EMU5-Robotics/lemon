@@ -1,14 +1,13 @@
-use client::coprocessor::{Port, SerialData};
-use protocol::{Packet3, Packet4};
+use client::coprocessor::serial::{find_v5_port, Serial, SerialData};
+use protocol::{ControlPkt, StatusPkt};
 use std::time::Duration;
 
-use fern::colors::{Color, ColoredLevelConfig};
-
 fn main() {
-	create_logger();
+	common::create_logger();
 
-	let port = Port::open("/dev/ttyACM1").unwrap();
-	let data = port.spawn_threaded();
+	let ports = find_v5_port().unwrap();
+	let serial = Serial::open(&ports.0.port_name).unwrap();
+	let data = serial.spawn_threaded();
 
 	#[allow(unused_assignments)]
 	let (mut last, mut current) = initialise(&data);
@@ -84,67 +83,45 @@ impl Drive {
 			turn_rate,
 		}
 	}
-	pub fn drive(&self, fpower: f32, tpower: f32, output: &mut Packet4) {
+
+	pub fn drive(&self, fpower: f32, tpower: f32, output: &mut ControlPkt) {
 		let lpower = ((fpower + self.turn_rate * tpower).clamp(-1.0, 1.0) * MAX_MILLIVOLT) as i16;
 		let rpower = ((fpower - self.turn_rate * tpower).clamp(-1.0, 1.0) * MAX_MILLIVOLT) as i16;
 
 		for motor in &self.left {
-			output.set_motor(
-				motor.port as usize - 1,
+			output.set_power(
+				motor.port as usize,
 				if motor.reversed { -lpower } else { lpower },
 			);
 		}
 
 		for motor in &self.right {
-			output.set_motor(
-				motor.port as usize - 1,
+			output.set_power(
+				motor.port as usize,
 				if motor.reversed { -rpower } else { rpower },
 			);
 		}
 	}
 }
 
-fn get_input(data: &SerialData) -> Packet3 {
+fn get_input(data: &SerialData) -> StatusPkt {
 	{
 		data.recv_pkt_lock().unwrap().clone()
 	}
 }
 
-fn get_last_output(data: &SerialData) -> Packet4 {
+fn get_last_output(data: &SerialData) -> ControlPkt {
 	{
 		data.send_pkt_lock().unwrap().clone()
 	}
 }
 
-fn initialise(data: &SerialData) -> (Packet3, Packet3) {
+fn initialise(data: &SerialData) -> (StatusPkt, StatusPkt) {
 	let last = { data.recv_pkt_lock().unwrap().clone() };
 	let current = { data.recv_pkt_lock().unwrap().clone() };
 	(last, current)
 }
 
-fn send_data(data: &SerialData, packet: Packet4) {
+fn send_data(data: &SerialData, packet: ControlPkt) {
 	*data.send_pkt_lock().unwrap() = packet;
-}
-
-pub fn create_logger() {
-	let colors = ColoredLevelConfig::new()
-		.error(Color::Red)
-		.warn(Color::Yellow)
-		.info(Color::Cyan)
-		.debug(Color::Magenta);
-
-	fern::Dispatch::new()
-		.format(move |out, message, record| {
-			out.finish(format_args!(
-				"{} {} [{}] {}",
-				chrono::Local::now().format("%H:%M:%S"),
-				colors.color(record.level()),
-				record.target(),
-				message
-			))
-		})
-		.level(log::LevelFilter::Debug)
-		.chain(std::io::stderr())
-		.apply()
-		.unwrap();
 }

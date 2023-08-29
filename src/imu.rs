@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mut delay = Delay::new();
 
 	// Create a new BNO055 IMU
-	let mut imu = Imu::init(Bno055::new(i2c), &mut delay)?;
+	let mut imu = Imu::init(Bno055::new(i2c).with_alternative_address(), &mut delay)?;
 
 	loop {
 		let start = Instant::now();
@@ -44,10 +44,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 struct Imu {
 	pub imu: Bno055<I2c>,
-	pos: Vector3<f32>,
+	vel: Vector3<f64>,
+	pos: Vector3<f64>,
 	last: Instant,
 
-	pub accel_constant_bias: Vector3<f32>,
+	pub accel_constant_bias: Vector3<f64>,
 }
 
 type ImuResult<T> = Result<T, bno055::Error<I2cError>>;
@@ -59,9 +60,9 @@ impl Imu {
 		Self::set_mode(&mut imu, delay)?;
 
 		// Wait for everything to be good
-		while !imu.is_fully_calibrated()? {
-			delay.delay_ms(5u32);
-		}
+		// while !imu.is_fully_calibrated()? {
+		//	delay.delay_ms(5u32);
+		// }
 
 		// Now sample bias from sensor (needed?)
 		let accel_constant_bias =
@@ -69,6 +70,7 @@ impl Imu {
 
 		Ok(Self {
 			imu,
+			vel: Vector3::zeros(),
 			pos: Vector3::zeros(),
 			last: Instant::now(),
 
@@ -91,17 +93,19 @@ impl Imu {
 	//     3. bias instablity (harder)
 	fn sample_constant_bias(
 		imu: &mut Bno055<I2c>,
-		_delay: &mut Delay,
+		delay: &mut Delay,
 		sample_time: Duration,
-	) -> ImuResult<Vector3<f32>> {
+	) -> ImuResult<Vector3<f64>> {
 		let sample_count = (sample_time.as_millis() / 10) as usize;
-		let sample_inv = 1.0 / (sample_count as f32);
+		let sample_inv = 1.0 / (sample_count as f64);
 
 		let mut acceleration_avg = Vector3::zeros();
 
 		for _ in 0..sample_count {
-			let sample: Vector3<f32> = imu.linear_acceleration()?.into();
+			let sample: Vector3<f64> =
+				<_ as Into<Vector3<f32>>>::into(imu.linear_acceleration()?).cast();
 			acceleration_avg += sample * sample_inv;
+			delay.delay_ms(10 as u16);
 		}
 
 		Ok(acceleration_avg)
@@ -110,27 +114,31 @@ impl Imu {
 	fn process(&mut self) -> ImuResult<()> {
 		let orientation: Quaternion<f32> = self.imu.quaternion()?.into();
 		let accel = {
-			let a: Vector3<f32> = self.imu.linear_acceleration()?.into();
+			let a: Vector3<f64> =
+				<_ as Into<Vector3<f32>>>::into(self.imu.linear_acceleration()?).cast();
 			a - self.accel_constant_bias
 		};
 
 		let dt = {
 			let now = Instant::now();
-			let dt = (now - self.last).as_secs_f32() / 1000.0;
+			let dt = (now - self.last).as_secs_f64();
 			self.last = now;
 			dt
 		};
 
-		let rotation = UnitQuaternion::from_quaternion(orientation).to_rotation_matrix();
+		let rotation = UnitQuaternion::from_quaternion(orientation)
+			.cast()
+			.to_rotation_matrix();
 
 		// Estimate position based on changes in acceleration
-		self.pos += (rotation * accel) * (0.5 * dt * dt);
+		let a = rotation * accel;
+		self.vel = self.vel + a * dt;
+		self.pos = self.pos + self.vel + a * (0.5 * dt * dt);
 
 		Ok(())
 	}
 
-	pub fn get_position(&self) -> Vector3<f32> {
+	pub fn get_position(&self) -> Vector3<f64> {
 		self.pos
 	}
 }
-
