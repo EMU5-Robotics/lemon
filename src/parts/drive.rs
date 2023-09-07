@@ -14,6 +14,7 @@ pub struct Drive {
 	last_encoder: (Length, Length),
 	last_update: Instant,
 	gearbox: Gearbox,
+	reversed: bool,
 	logger: RerunLogger,
 }
 
@@ -43,6 +44,8 @@ impl Drive {
 	}
 
 	pub fn drive(&self, fpower: f32, tpower: f32) {
+		let fpower = if self.reversed { -fpower } else { fpower };
+
 		let lpower = ((fpower + self.turn_rate * tpower).clamp(-1.0, 1.0) * MAX_MILLIVOLT) as i16;
 		let rpower = ((fpower - self.turn_rate * tpower).clamp(-1.0, 1.0) * MAX_MILLIVOLT) as i16;
 

@@ -125,3 +125,22 @@ impl<P> core::ops::DerefMut for Robot<P> {
 		&mut self.parts
 	}
 }
+
+pub fn move_voltage(
+	voltage: i16,
+	down: ControllerButtons,
+	up: ControllerButtons,
+	motors: &[Motor],
+) {
+	let voltage = if controller.button_held(down) {
+		-voltage
+	} else if controller.button_held(up) {
+		voltage
+	} else {
+		0
+	};
+
+	for motor in motors {
+		motor.voltage(voltage);
+	}
+}

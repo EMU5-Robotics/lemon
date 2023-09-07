@@ -30,31 +30,39 @@ pub fn main() -> anyhow::Result<()> {
 fn user_control(robot: &mut Robot) {
 	let controller = robot.input.controller;
 
+	if controller.button_pressed(ControllerButtons::UP) {
+		robot.base.reversed = false;
+	}
+	if controller.button_pressed(ControllerButtons::DOWN) {
+		robot.base.reversed = true;
+	}
+
 	let axes = controller.axes_as_f32();
 	let d_power = axes[1];
 	let t_power = axes[2];
-	robot.base.drive(d_power, -t_power);
+	robot.base.drive(d_power, t_power);
 
-	let voltage = if controller.button_held(ControllerButtons::R2) {
-		12_000
-	} else if controller.button_held(ControllerButtons::R1) {
-		-12_000
-	} else {
-		0
-	};
-	for motor in robot.hang.iter() {
-		motor.voltage(voltage);
-	}
+	lemon::move_voltage(
+		12_000,
+		ControllerButtons::R2,
+		ControllerButtons::R1,
+		&robot.parts.hang[..],
+	);
+	lemon::move_voltage(
+		12_000,
+		ControllerButtons::L1,
+		ControllerButtons::L2,
+		&[robot.parts.flipper],
+	)
 }
 
 fn auton(robot: &mut Robot) {
 	// Create auton path if it doesn't exist
 	if robot.path.is_none() {
-		robot.path = Some(auton_path(
-			&robot.base,
-			robot.flipper.clone(),
-			robot.hang.clone(),
-		));
+		match robot.input.v5_status.1.auton {
+			0 => robot.path = Some(auton_path(&robot.base, robot.flipper.clone())),
+			_ => robot.path = Some(other_auton_path()),
+		}
 	}
 	let mut path = robot.parts.path.take().unwrap();
 
@@ -91,9 +99,18 @@ fn auton_path(drive: &Drive, flipper: Motor, hang: [Motor; 2]) -> Path {
 	])
 }
 
+fn other_auton_path() -> Path {
+	Path::new(vec![
+		SetVel::new((meter_per_second!(1.0), meter_per_second!(1.0)))
+			.with_timer(Duration::from_millis(500)),
+		SetVel::new((meter_per_second!(-1.0), meter_per_second!(-1.0)))
+			.with_timer(Duration::from_millis(500)),
+	])
+}
+
 fn create_parts(state: &mut GlobalState) -> anyhow::Result<Parts> {
 	let flipper = state.take_motor(10, false);
-	let hang = [state.take_motor(18, false), state.take_motor(19, true)];
+	let hang = [state.take_motor(18, true), state.take_motor(19, false)];
 
 	Ok(Parts {
 		flipper,
@@ -106,14 +123,14 @@ fn create_drive(state: &mut GlobalState) -> anyhow::Result<Drive> {
 	let drive = Drive::new(
 		state.network.rerun_logger(),
 		[
-			state.take_motor(16, true),
-			state.take_motor(15, true),
-			state.take_motor(14, true),
-		],
-		[
 			state.take_motor(17, false),
 			state.take_motor(12, false),
 			state.take_motor(11, false),
+		],
+		[
+			state.take_motor(16, true),
+			state.take_motor(15, true),
+			state.take_motor(14, true),
 		],
 		Gearbox::Blue,
 		0.55,
