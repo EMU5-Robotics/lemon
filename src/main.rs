@@ -1,6 +1,10 @@
 use client::coprocessor::serial::{find_v5_port, Serial, SerialData};
-use protocol::{ControlPkt, StatusPkt};
+use protocol::{ControlPkt, StatusPkt, device::ControllerButtons};
 use std::time::Duration;
+
+mod replay;
+
+use replay::{Player, Recorder};
 
 fn main() {
 	common::create_logger();
@@ -26,21 +30,90 @@ fn main() {
 		0.8,
 	);
 
+    let mut recorder = Recorder::new();
+    let mut player = Player::from_file("test.replay").unwrap();
+
+    let mut axes = [0, 0, 0, 0];
+
 	loop {
 		current = get_input(&data);
 		let mut output = get_last_output(&data);
 
-		// check controller input
-		let controller = current.controller_axes;
-		let d_power = controller[1] as f32 / 127.0;
-		let t_power = controller[2] as f32 / 127.0;
+        let mut input_changes = InputChanges::from_pair(&last, &current);
 
+        // check for player independent events
+        if input_changes.released(ControllerButtons::A) {
+            recorder.toggle().unwrap();
+        } else if input_changes.pressed(ControllerButtons::A) && recorder != Recorder::Off {
+            recorder.toggle().unwrap();
+        }
+
+        if input_changes.released(ControllerButtons::B) {
+            player = player.play();
+        }
+
+        recorder.take_event(&input_changes).unwrap();
+
+        if player.is_playing() {
+            // play replay
+            let events = player.get_events();
+            if events.len() > 1 {
+                log::warn!("more than one event detected!");
+            }
+            if !events.is_empty() {
+                // override input changes event
+                input_changes = events[0].1;
+            }
+        }
+
+        // update axes if detected change
+        if let Some(new_axes) = input_changes.axes {
+            axes = new_axes;
+        }
+
+		let d_power = axes[1] as f32 / 127.0;
+	    let t_power = axes[2] as f32 / 127.0;
 		drive.drive(d_power, t_power, &mut output);
 
 		send_data(&data, output);
 		std::mem::swap(&mut last, &mut current);
 		std::thread::sleep(Duration::from_millis(10));
 	}
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct InputChanges {
+    pressed: ControllerButtons,
+    released: ControllerButtons,
+    axes: Option<[i8; 4]>,
+}
+
+impl InputChanges {
+    pub const NOCHANGE: Self = InputChanges { pressed: ControllerButtons::empty(), released: ControllerButtons::empty(), axes: None};
+
+    pub fn from_pair(last: &StatusPkt, current: &StatusPkt) -> Self {
+        let pressed = current.controller_buttons & !last.controller_buttons;
+
+        let released = !current.controller_buttons & last.controller_buttons;
+
+        let axes = if current.controller_axes != last.controller_axes {
+            Some(current.controller_axes)
+        } else {
+            None
+        };
+
+        Self { pressed, released, axes }
+    }
+    pub fn changes(&self) -> bool {
+        self.pressed != ControllerButtons::empty() || self.released != ControllerButtons::empty() || self.axes.is_some()
+    }
+    pub fn released(&self, buttons: ControllerButtons) -> bool {
+        self.released & buttons != ControllerButtons::empty()
+    }
+    pub fn pressed(&self, buttons: ControllerButtons) -> bool {
+        self.pressed & buttons != ControllerButtons::empty()
+    }
+    
 }
 
 struct Motor {

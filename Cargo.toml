@@ -8,6 +8,7 @@ client = { path = "../transport/client", features = ["coprocessor"] }
 common = { path = "../transport/common" }
 protocol = { path = "../transport/vex/protocol" }
 
+chrono = "0.4.28"
 log = "0.4"
 
 bno055 = { version = "0.3.3", features = ["std"] }
@@ -15,6 +16,7 @@ embedded-hal = { version = "0.2.7", features = ["unproven"] }
 rppal = { version = "0.14.1", features = ["hal-unproven"] }
 
 nalgebra = { version = "0.32.3", features = ["libm-force", "alloc", "convert-mint"] }
+base64 = "0.21.3"
 
 [[bin]]
 name = "imu"
