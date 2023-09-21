@@ -57,9 +57,6 @@ fn main() {
         if player.is_playing() {
             // play replay
             let events = player.get_events();
-            if events.len() > 1 {
-                log::warn!("more than one event detected!");
-            }
             if !events.is_empty() {
                 // override input changes event
                 input_changes = events[0].1;

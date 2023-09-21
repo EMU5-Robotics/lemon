@@ -1,7 +1,6 @@
-use base64::{Engine as _, engine::general_purpose};
 use chrono::prelude::*;
 use crate::InputChanges;
-use protocol::{device::ControllerButtons};
+use protocol::device::ControllerButtons;
 use std::time::Instant;
 use std::io::{self, Write, BufRead};
 
@@ -25,7 +24,7 @@ impl From<io::Error> for ReplayError {
 pub enum Recorder {
     Off,
     Waiting(Instant),
-    Recording{ start: Instant, events: Vec<(u32, InputChanges)> }
+    Recording{ last: Instant, events: Vec<(u32, InputChanges)> }
 }
 
 impl Recorder {
@@ -41,7 +40,7 @@ impl Recorder {
             Self::Waiting(_) => {
                 *self = Self::Off;
             },
-            Self::Recording{start: _, events} => {
+            Self::Recording{last: _, events} => {
                Self::write_events(events)?;
                *self = Self::Off;
             },
@@ -52,24 +51,25 @@ impl Recorder {
     pub fn take_event(&mut self, changes: &InputChanges) -> Result<(), ReplayError> {
         match self {
             Self::Off => {},
-            Self::Waiting(ref start) | Self::Recording{ref start, ..} => {
+            Self::Waiting(ref last) | Self::Recording{ref last, ..} => {
                 if !changes.changes() {
                     return Ok(());
                 }
 
-                let elapsed = start.elapsed().as_millis();
+                let elapsed = last.elapsed().as_micros() / 100;
 
                 if elapsed > u32::MAX as u128 {
                     *self = Self::Off;
-                    log::error!("recording exceeded maximum time (~1193 hours).");
+                    log::error!("recording exceeded maximum time between events (~119 hours).");
                     return Err(ReplayError::MaxTimeExceeded);
                 }
 
                 match self {
                     Self::Waiting(_) => {
-                        *self = Self::Recording{start: *start, events: vec![(elapsed as u32, *changes)]};
+                        *self = Self::Recording{last: Instant::now(), events: vec![(elapsed as u32, *changes)]};
                     }
-                    Self::Recording{events, ..} => {
+                    Self::Recording{events, last, ..} => {
+                        *last = Instant::now();
                         events.push((elapsed as u32, *changes));
                     }
                     _ => {
@@ -88,13 +88,13 @@ impl Recorder {
 
         let mut file = std::fs::File::create(filename)?;
 
-        for (timestamp, changes) in events {
-            write!(file, "{timestamp},{},{}", changes.pressed.bits(), changes.released.bits()).unwrap();
+        for (diff, changes) in events {
+            write!(file, "{diff},{},{}", changes.pressed.bits(), changes.released.bits())?;
             if let Some(axes) = changes.axes {
                 write!(file, ",{},{},{},{}\n", axes[0], axes[1], axes[2], axes[3])
             } else {
                 write!(file, "\n")
-            }.unwrap();
+            }?;
         }
         Ok(())
     }
@@ -103,7 +103,7 @@ impl Recorder {
 #[derive(Debug)]
 pub enum Player {
     Off(Vec<(u32, InputChanges)>),
-    Playing{start: Instant, events: Vec<(u32, InputChanges)>}
+    Playing{last: Instant, events: Vec<(u32, InputChanges)>, cursor: usize}
 }
 
 impl Player {
@@ -114,7 +114,6 @@ impl Player {
 
         let mut events = Vec::new();
 
-        let mut last_time = 0;
         let mut line = 1;
         loop {
             let mut changes = InputChanges::NOCHANGE;
@@ -130,24 +129,36 @@ impl Player {
                 return Err(ReplayError::ParseError(format!("line {line} has an invalid number of items: {length}")));
             }
 
-            let time: u32 = things[0].parse().unwrap();
-            if time < last_time {
-                return Err(ReplayError::ParseError(format!("line {line} went backwards in time ({time}ms < {last_time}ms)")));
-            }
-            //add error
-            changes.pressed = ControllerButtons::from_bits(things[1].parse::<u16>().unwrap()).unwrap();
-            changes.released = ControllerButtons::from_bits(things[2].parse::<u16>().unwrap()).unwrap();
+            let Ok(diff_time) = things[0].parse() else {
+                return Err(ReplayError::ParseError(format!("line {line} has an invalid diff time: {}", things[0])));
+            };
+
+            let Ok(Some(pressed)) = things[1].parse::<u16>().map(|v| ControllerButtons::from_bits(v)) else {
+                return Err(ReplayError::ParseError(format!("line {line} has invalid pressed bitfield: {}", things[1])))
+            };
+            changes.pressed = pressed;
+
+            let Ok(Some(released)) = things[2].parse::<u16>().map(|v| ControllerButtons::from_bits(v)) else {
+                return Err(ReplayError::ParseError(format!("line {line} has invalid released bitfield: {}", things[2])))
+            };
+            changes.released = released;
 
             if length == 7 {
-            //add error
-                let lx: i8 = things[3].parse().unwrap();
-                let ly: i8 = things[4].parse().unwrap();
-                let rx: i8 = things[5].parse().unwrap();
-                let ry: i8 = things[6].parse().unwrap();
+                let Ok(lx) = things[3].parse::<i8>() else {
+                    return Err(ReplayError::ParseError(format!("line {line} has invalid lx value: {}", things[3])));
+                };
+                let Ok(ly) = things[4].parse::<i8>() else {
+                    return Err(ReplayError::ParseError(format!("line {line} has invalid ly value: {}", things[4])));
+                };
+                let Ok(rx) = things[5].parse::<i8>() else {
+                    return Err(ReplayError::ParseError(format!("line {line} has invalid rx value: {}", things[5])));
+                };
+                let Ok(ry) = things[6].parse::<i8>() else {
+                    return Err(ReplayError::ParseError(format!("line {line} has invalid rx value: {}", things[6])));
+                };
                 changes.axes = Some([lx, ly, rx, ry]);
             }
-            last_time = time;
-            events.push((time, changes));
+            events.push((diff_time, changes));
             line += 1;
         }
         Ok(Self::Off(events))
@@ -156,7 +167,8 @@ impl Player {
     pub fn play(self) -> Self {
         match self {
             Self::Off(events) => {
-                Self::Playing{start: Instant::now(), events }
+                log::info!("Player started");
+                Self::Playing{last: Instant::now(), events, cursor: 0 }
             }
             Self::Playing{..} => {
                 log::warn!("Player::play was called while in state Playing.");
@@ -164,30 +176,69 @@ impl Player {
             }
         }
     }
-    pub fn get_events(&mut self) -> Vec<(u32, InputChanges)> {
-        match self {
+
+    pub fn get_events(&mut self) -> &[(u32, InputChanges)] {
+        let (reset, range) = match self {
             Self::Off(_) => {
                 log::warn!("Player::get_events was called while in state Off.");
-                return vec![];
+                return &[];
             }
-            Self::Playing{start, events} => {
-                let elapsed = start.elapsed().as_millis();
-                if elapsed > u32::MAX as u128 {
-                    log::error!("recording exceeded maximum time (~1193 hours), resetting.");
+            Self::Playing{last, events, cursor} => {
+                let start_index = *cursor;
+                let mut event_sum = 0;
+                loop {
+                    // end of playback reached
+                    if *cursor >= events.len() {
+                        log::info!("playback ended!");
+                        if *cursor - start_index > 1 {
+                            log::warn!("more than one event returned! (is robot processing slowly?).");
+                        }
+                        break (true, start_index..*cursor);
+                    }
+
+                    // time since last_update
+                    let elapsed = last.elapsed().as_micros() / 100;
+                    if elapsed > u32::MAX as u128 {
+                        log::error!("recording exceeded maximum time between events (~119 hours), resetting.");
+                        break (true, 0..0);
+                    }
+                    let elapsed = elapsed as u32;
+
+                    event_sum += events[*cursor].0;
+                    if elapsed < event_sum {
+                        if start_index == *cursor {
+                            return &[];
+                        }
+                        *last = Instant::now();
+                        break (false, start_index..*cursor);
+                    }
+                    *cursor += 1;
                 }
-                let elapsed = elapsed as u32;
-
-                let index = events.partition_point(|x| x.0 < elapsed);
-
-                let mut passed = events.split_off(index);
-
-                std::mem::swap(events, &mut passed);
-
-                passed
             }
+        };
+
+        if reset {
+            self.reset();
+        }
+
+        &self.events()[range]
+    }
+    fn events(&self) -> &[(u32, InputChanges)] {
+        match self {
+            Self::Off(events) => events,
+            Self::Playing{events, ..} => events,
         }
     }
-
+    pub fn reset(&mut self) {
+        let events = if let Self::Playing{events, ..} = self {
+            let mut tmp = Vec::new();
+            std::mem::swap(&mut tmp, events);
+            tmp
+        } else {
+            return;
+        };
+        *self = Self::Off(events);
+    }
     pub fn is_playing(&self) -> bool {
         if let Self::Playing{..} = self {
             return true;
