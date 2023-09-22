@@ -1,5 +1,5 @@
 use client::coprocessor::serial::{find_v5_port, Serial, SerialData};
-use protocol::{ControlPkt, StatusPkt, device::ControllerButtons};
+use protocol::{device::ControllerButtons, ControlPkt, StatusPkt};
 use std::time::Duration;
 
 mod replay;
@@ -13,8 +13,8 @@ fn main() {
 	let serial = Serial::open(&ports.0.port_name).unwrap();
 	let data = serial.spawn_threaded();
 
-	#[allow(unused_assignments)]
-	let (mut last, mut current) = initialise(&data);
+	let mut last = get_input(&data);
+	let mut current;
 
 	let drive = Drive::new(
 		[
@@ -30,46 +30,50 @@ fn main() {
 		0.8,
 	);
 
-    let mut recorder = Recorder::new();
-    let mut player = Player::from_file("test.replay").unwrap();
+	let mut recorder = Recorder::new();
+	let mut player = Player::from_file("test.replay").unwrap_or_default();
 
-    let mut axes = [0, 0, 0, 0];
+	let mut axes = [0, 0, 0, 0];
 
 	loop {
 		current = get_input(&data);
 		let mut output = get_last_output(&data);
 
-        let mut input_changes = InputChanges::from_pair(&last, &current);
+		let mut input_changes = InputChanges::from_pair(&last, &current);
 
-        // check for player independent events
-        if input_changes.released(ControllerButtons::A) {
-            recorder.toggle().unwrap();
-        } else if input_changes.pressed(ControllerButtons::A) && recorder != Recorder::Off {
-            recorder.toggle().unwrap();
-        }
+		// check for player independent events
+		if input_changes.released(ControllerButtons::A)
+			|| (input_changes.pressed(ControllerButtons::A) && recorder != Recorder::Off)
+		{
+			if let Err(e) = recorder.toggle() {
+				log::error!("recorder toggle failed with: {e}");
+			}
+		}
 
-        if input_changes.released(ControllerButtons::B) {
-            player = player.play();
-        }
+		if input_changes.released(ControllerButtons::B) {
+			player = player.play();
+		}
 
-        recorder.take_event(&input_changes).unwrap();
+		if let Err(e) = recorder.take_event(&input_changes) {
+			log::error!("recorder failed to take event with: {e}");
+		}
 
-        if player.is_playing() {
-            // play replay
-            let events = player.get_events();
-            if !events.is_empty() {
-                // override input changes event
-                input_changes = events[0].1;
-            }
-        }
+		if player.is_playing() {
+			// play replay
+			let events = player.get_events();
+			if !events.is_empty() {
+				// override input changes event
+				input_changes = events[0].1;
+			}
+		}
 
-        // update axes if detected change
-        if let Some(new_axes) = input_changes.axes {
-            axes = new_axes;
-        }
+		// update axes if detected change
+		if let Some(new_axes) = input_changes.axes {
+			axes = new_axes;
+		}
 
 		let d_power = axes[1] as f32 / 127.0;
-	    let t_power = axes[2] as f32 / 127.0;
+		let t_power = axes[2] as f32 / 127.0;
 		drive.drive(d_power, t_power, &mut output);
 
 		send_data(&data, output);
@@ -80,37 +84,46 @@ fn main() {
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct InputChanges {
-    pressed: ControllerButtons,
-    released: ControllerButtons,
-    axes: Option<[i8; 4]>,
+	pressed: ControllerButtons,
+	released: ControllerButtons,
+	axes: Option<[i8; 4]>,
 }
 
 impl InputChanges {
-    pub const NOCHANGE: Self = InputChanges { pressed: ControllerButtons::empty(), released: ControllerButtons::empty(), axes: None};
+	pub const NOCHANGE: Self = InputChanges {
+		pressed: ControllerButtons::empty(),
+		released: ControllerButtons::empty(),
+		axes: None,
+	};
 
-    pub fn from_pair(last: &StatusPkt, current: &StatusPkt) -> Self {
-        let pressed = current.controller_buttons & !last.controller_buttons;
+	pub fn from_pair(last: &StatusPkt, current: &StatusPkt) -> Self {
+		let pressed = current.controller_buttons & !last.controller_buttons;
 
-        let released = !current.controller_buttons & last.controller_buttons;
+		let released = !current.controller_buttons & last.controller_buttons;
 
-        let axes = if current.controller_axes != last.controller_axes {
-            Some(current.controller_axes)
-        } else {
-            None
-        };
+		let axes = if current.controller_axes != last.controller_axes {
+			Some(current.controller_axes)
+		} else {
+			None
+		};
 
-        Self { pressed, released, axes }
-    }
-    pub fn changes(&self) -> bool {
-        self.pressed != ControllerButtons::empty() || self.released != ControllerButtons::empty() || self.axes.is_some()
-    }
-    pub fn released(&self, buttons: ControllerButtons) -> bool {
-        self.released & buttons != ControllerButtons::empty()
-    }
-    pub fn pressed(&self, buttons: ControllerButtons) -> bool {
-        self.pressed & buttons != ControllerButtons::empty()
-    }
-    
+		Self {
+			pressed,
+			released,
+			axes,
+		}
+	}
+	pub fn changes(&self) -> bool {
+		self.pressed != ControllerButtons::empty()
+			|| self.released != ControllerButtons::empty()
+			|| self.axes.is_some()
+	}
+	pub fn released(&self, buttons: ControllerButtons) -> bool {
+		self.released & buttons != ControllerButtons::empty()
+	}
+	pub fn pressed(&self, buttons: ControllerButtons) -> bool {
+		self.pressed & buttons != ControllerButtons::empty()
+	}
 }
 
 struct Motor {
@@ -175,21 +188,11 @@ impl Drive {
 }
 
 fn get_input(data: &SerialData) -> StatusPkt {
-	{
-		data.recv_pkt_lock().unwrap().clone()
-	}
+	data.recv_pkt_lock().unwrap().clone()
 }
 
 fn get_last_output(data: &SerialData) -> ControlPkt {
-	{
-		data.send_pkt_lock().unwrap().clone()
-	}
-}
-
-fn initialise(data: &SerialData) -> (StatusPkt, StatusPkt) {
-	let last = { data.recv_pkt_lock().unwrap().clone() };
-	let current = { data.recv_pkt_lock().unwrap().clone() };
-	(last, current)
+	data.send_pkt_lock().unwrap().clone()
 }
 
 fn send_data(data: &SerialData, packet: ControlPkt) {
