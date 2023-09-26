@@ -2,6 +2,9 @@ use client::coprocessor::serial::{find_v5_port, Serial, SerialData};
 use protocol::{device::ControllerButtons, ControlPkt, StatusPkt};
 use std::time::Duration;
 
+use uom::{si::f64::*, si::length::meter};
+
+mod odom;
 mod replay;
 
 use replay::{Player, Recorder};
@@ -29,6 +32,8 @@ fn main() {
 		],
 		0.8,
 	);
+
+	let mut odom = odom::DriveOdom::new(Length::new::<meter>(0.13), &drive);
 
 	let mut recorder = Recorder::new();
 	let mut player = Player::from_file("test.replay").unwrap_or_default();
@@ -66,6 +71,7 @@ fn main() {
 				input_changes = events[0].1;
 			}
 		}
+		drive.side_encoders(&mut current);
 
 		// update axes if detected change
 		if let Some(new_axes) = input_changes.axes {
@@ -75,6 +81,8 @@ fn main() {
 		let d_power = axes[1] as f32 / 127.0;
 		let t_power = axes[2] as f32 / 127.0;
 		drive.drive(d_power, t_power, &mut output);
+
+		odom.update(&mut current);
 
 		send_data(&data, output);
 		std::mem::swap(&mut last, &mut current);
@@ -126,7 +134,7 @@ impl InputChanges {
 	}
 }
 
-struct Motor {
+pub struct Motor {
 	port: u8,
 	reversed: bool,
 }
@@ -137,7 +145,7 @@ impl Motor {
 	}
 }
 
-struct Drive {
+pub struct Drive {
 	left: [Motor; 3],
 	right: [Motor; 3],
 	turn_rate: f32,
@@ -184,6 +192,13 @@ impl Drive {
 				if motor.reversed { -rpower } else { rpower },
 			);
 		}
+	}
+	pub fn side_encoders(&self, pkt: &mut StatusPkt) -> Option<(Length, Length)> {
+		let (l, r) = (
+			pkt.get_encoder(1)? as f64 * 0.006,
+			pkt.get_encoder(20)? as f64 * 0.006,
+		);
+		Some((Length::new::<meter>(l), Length::new::<meter>(r)))
 	}
 }
 
