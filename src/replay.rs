@@ -110,9 +110,9 @@ impl Recorder {
 				changes.released.bits()
 			)?;
 			if let Some(axes) = changes.axes {
-				write!(file, ",{},{},{},{}\n", axes[0], axes[1], axes[2], axes[3])
+				writeln!(file, ",{},{},{},{}", axes[0], axes[1], axes[2], axes[3])
 			} else {
-				write!(file, "\n")
+				writeln!(file)
 			}?;
 		}
 		Ok(())
@@ -169,9 +169,7 @@ impl Player {
 				)));
 			};
 
-			let Ok(Some(pressed)) = things[1]
-				.parse::<u16>()
-				.map(|v| ControllerButtons::from_bits(v))
+			let Ok(Some(pressed)) = things[1].parse::<u16>().map(ControllerButtons::from_bits)
 			else {
 				return Err(ReplayError::ParseError(format!(
 					"line {line} has invalid pressed bitfield: {}",
@@ -180,9 +178,7 @@ impl Player {
 			};
 			changes.pressed = pressed;
 
-			let Ok(Some(released)) = things[2]
-				.parse::<u16>()
-				.map(|v| ControllerButtons::from_bits(v))
+			let Ok(Some(released)) = things[2].parse::<u16>().map(ControllerButtons::from_bits)
 			else {
 				return Err(ReplayError::ParseError(format!(
 					"line {line} has invalid released bitfield: {}",

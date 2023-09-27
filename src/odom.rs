@@ -2,14 +2,12 @@ use crate::Drive;
 use protocol::StatusPkt;
 use std::f64::consts::PI;
 use std::time::Instant;
-use uom::{
-	si::f64::*,
-	si::{angle::radian, length::meter, time::second},
-};
+
+use crate::units::*;
 
 pub struct DriveOdom<'a> {
-	last_encoder: (Length, Length),
-	theta: Angle,
+	last_dist: (Length, Length),
+	angle: Angle,
 	dw: Length,
 	drive: &'a Drive,
 	pos: (Length, Length),
@@ -18,44 +16,52 @@ pub struct DriveOdom<'a> {
 
 impl<'a> DriveOdom<'a> {
 	pub fn new(dw: Length, drive: &'a Drive) -> Self {
-		let zero = Length::new::<meter>(0.0);
 		Self {
-			last_encoder: (Length::new::<meter>(0.0), Length::new::<meter>(0.0)),
+			last_dist: (meter!(0.0), meter!(0.0)),
 			dw,
 			drive,
-			theta: Angle::new::<radian>(0.0),
-			pos: (zero, zero),
+			angle: radian!(0.0),
+			pos: (meter!(0.0), meter!(0.0)),
 			last_update: Instant::now(),
 		}
 	}
-	pub fn update(&mut self, pkt: &mut StatusPkt) -> Option<(Velocity, Velocity)> {
-		let (adl, adr) = self.drive.side_encoders(pkt)?;
-		let (dl, dr) = (adl - self.last_encoder.0, adr - self.last_encoder.1);
-		let d = 0.5 * (dl + dr);
-		let dtheta: Angle = (0.5 * (dr - dl) / self.dw).into();
-		let tmp: f64 = (self.theta.value + 0.5 * dtheta.value).into();
-		let (dx, dy) = (
-			Length::new::<meter>(d.value * tmp.cos()),
-			Length::new::<meter>(d.value * tmp.sin()),
-		);
-		self.pos.0 += dx;
+	pub fn update(&mut self, pkt: &StatusPkt) -> Option<(Velocity, Velocity)> {
+		// get displacement and change in displacement
+		// relative to the sides on the robot
+		let (dist_l, dist_r) = self.drive.side_encoders(pkt)?;
+		let (diff_l, diff_r) = (dist_l - self.last_dist.0, dist_r - self.last_dist.1);
+
+		// calculate displacement and change in angle for center of the robot
+		let diff_dist = 0.5 * (diff_l + diff_r);
+		let diff_angle: Angle = (0.5 * (diff_r - diff_l) / self.dw).into();
+
+		// calculate displacement in global space
+		let tmp = self.angle + 0.5 * diff_angle;
+		let (dx, dy) = tmp.sin_cos();
+		let (dx, dy) = (diff_dist * dx, diff_dist * dy);
+
+		// apply global displacement and rotation
+		self.pos.0 -= dx;
 		self.pos.1 += dy;
-		self.theta += dtheta;
+		self.angle += diff_angle;
 
-		self.last_encoder = (adl, adr);
-
-		let time = Time::new::<second>(self.last_update.elapsed().as_secs_f64());
+		// update state and calculate running averages
+		let time = second!(self.last_update.elapsed().as_secs_f64());
+		self.last_dist = (dist_l, dist_r);
 		self.last_update = Instant::now();
+
 		let vel = (dx / time, dy / time);
 
 		log::info!(
-			"pos: ({:.2}, {:.2}) | angle: ({:.2}) | vel: ({:.2}, {:.2})",
+			"pos: ({:.2}, {:.2}) | angle: ({:.2}) | vel: ({:.2}, {:.2}) | {:.2}ms",
 			self.pos.0.value,
 			self.pos.1.value,
-			self.theta.value * 180.0 / PI,
+			self.angle.value * 180.0 / PI,
 			vel.0.value,
 			vel.1.value,
+			time.value * 1000.0
 		);
+
 		Some(vel)
 	}
 }

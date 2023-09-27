@@ -105,7 +105,7 @@ impl Imu {
 			let sample: Vector3<f64> =
 				<_ as Into<Vector3<f32>>>::into(imu.linear_acceleration()?).cast();
 			acceleration_avg += sample * sample_inv;
-			delay.delay_ms(10 as u16);
+			delay.delay_ms(10u16);
 		}
 
 		Ok(acceleration_avg)
@@ -132,8 +132,8 @@ impl Imu {
 
 		// Estimate position based on changes in acceleration
 		let a = rotation * accel;
-		self.vel = self.vel + a * dt;
-		self.pos = self.pos + self.vel + a * (0.5 * dt * dt);
+		self.vel += a * dt;
+		self.pos += self.vel + a * (0.5 * dt * dt);
 
 		Ok(())
 	}

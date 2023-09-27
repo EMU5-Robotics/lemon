@@ -2,12 +2,13 @@ use client::coprocessor::serial::{find_v5_port, Serial, SerialData};
 use protocol::{device::ControllerButtons, ControlPkt, StatusPkt};
 use std::time::Duration;
 
-use uom::{si::f64::*, si::length::meter};
-
+mod motion_profile;
 mod odom;
 mod replay;
+mod units;
 
 use replay::{Player, Recorder};
+use units::*;
 
 fn main() {
 	common::create_logger();
@@ -33,7 +34,7 @@ fn main() {
 		0.8,
 	);
 
-	let mut odom = odom::DriveOdom::new(Length::new::<meter>(0.13), &drive);
+	let mut odom = odom::DriveOdom::new(meter!(0.1285), &drive);
 
 	let mut recorder = Recorder::new();
 	let mut player = Player::from_file("test.replay").unwrap_or_default();
@@ -71,7 +72,7 @@ fn main() {
 				input_changes = events[0].1;
 			}
 		}
-		drive.side_encoders(&mut current);
+		drive.side_encoders(&current);
 
 		// update axes if detected change
 		if let Some(new_axes) = input_changes.axes {
@@ -82,11 +83,11 @@ fn main() {
 		let t_power = axes[2] as f32 / 127.0;
 		drive.drive(d_power, t_power, &mut output);
 
-		odom.update(&mut current);
+		odom.update(&current);
 
 		send_data(&data, output);
 		std::mem::swap(&mut last, &mut current);
-		std::thread::sleep(Duration::from_millis(10));
+		std::thread::sleep(Duration::from_millis(1));
 	}
 }
 
@@ -109,10 +110,10 @@ impl InputChanges {
 
 		let released = !current.controller_buttons & last.controller_buttons;
 
-		let axes = if current.controller_axes != last.controller_axes {
-			Some(current.controller_axes)
-		} else {
+		let axes = if current.controller_axes == last.controller_axes {
 			None
+		} else {
+			Some(current.controller_axes)
 		};
 
 		Self {
@@ -193,12 +194,12 @@ impl Drive {
 			);
 		}
 	}
-	pub fn side_encoders(&self, pkt: &mut StatusPkt) -> Option<(Length, Length)> {
+	pub fn side_encoders(&self, pkt: &StatusPkt) -> Option<(Length, Length)> {
 		let (l, r) = (
 			pkt.get_encoder(1)? as f64 * 0.006,
 			pkt.get_encoder(20)? as f64 * 0.006,
 		);
-		Some((Length::new::<meter>(l), Length::new::<meter>(r)))
+		Some((meter!(l), meter!(r)))
 	}
 }
 
