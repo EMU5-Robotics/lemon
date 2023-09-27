@@ -1,6 +1,6 @@
 use client::coprocessor::serial::{find_v5_port, Serial, SerialData};
 use protocol::{device::ControllerButtons, ControlPkt, StatusPkt};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 mod motion_profile;
 mod odom;
@@ -20,7 +20,7 @@ fn main() {
 	let mut last = get_input(&data);
 	let mut current;
 
-	let drive = Drive::new(
+	let mut drive = Drive::new(
 		[
 			Motor::new(10, true),
 			Motor::new(2, true),
@@ -34,7 +34,7 @@ fn main() {
 		0.8,
 	);
 
-	let mut odom = odom::DriveOdom::new(meter!(0.1285), &drive);
+	let mut odom = odom::DriveOdom::new(meter!(0.1285));
 
 	let mut recorder = Recorder::new();
 	let mut player = Player::from_file("test.replay").unwrap_or_default();
@@ -83,7 +83,7 @@ fn main() {
 		let t_power = axes[2] as f32 / 127.0;
 		drive.drive(d_power, t_power, &mut output);
 
-		odom.update(&current);
+		odom.update(&current, &mut drive);
 
 		send_data(&data, output);
 		std::mem::swap(&mut last, &mut current);
@@ -150,6 +150,8 @@ pub struct Drive {
 	left: [Motor; 3],
 	right: [Motor; 3],
 	turn_rate: f32,
+	last_encoder: (Length, Length),
+	last_update: Instant,
 }
 
 const MAX_MILLIVOLT: f32 = 4000.0;
@@ -173,6 +175,8 @@ impl Drive {
 			left,
 			right,
 			turn_rate,
+			last_encoder: (meter!(0.0), meter!(0.0)),
+			last_update: Instant::now(),
 		}
 	}
 
@@ -194,12 +198,27 @@ impl Drive {
 			);
 		}
 	}
-	pub fn side_encoders(&self, pkt: &StatusPkt) -> Option<(Length, Length)> {
-		let (l, r) = (
-			pkt.get_encoder(1)? as f64 * 0.006,
-			pkt.get_encoder(20)? as f64 * 0.006,
+	pub fn side_encoders(&mut self, pkt: &StatusPkt) -> Option<(Length, Length)> {
+		let smooth_window: Time = millisecond!(40.0);
+
+		let (mut l, mut r) = (
+			meter!(pkt.get_encoder(1)? as f64 * 0.006),
+			meter!(pkt.get_encoder(20)? as f64 * 0.006),
 		);
-		Some((meter!(l), meter!(r)))
+
+		// smooth encoder values to avoid aliasing issues
+		let elapsed = second!(self.last_update.elapsed().as_secs_f64());
+		let t = (elapsed / smooth_window).value;
+
+		if t < 1.0 {
+			l = (1.0 - t) * self.last_encoder.0 + t * l;
+			r = (1.0 - t) * self.last_encoder.1 + t * r;
+		}
+
+		self.last_update = Instant::now();
+		self.last_encoder = (l, r);
+
+		Some((l, r))
 	}
 }
 

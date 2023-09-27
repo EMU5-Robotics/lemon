@@ -291,8 +291,7 @@ impl Player {
 	}
 	fn events(&self) -> &[(u32, InputChanges)] {
 		match self {
-			Self::Off(events) => events,
-			Self::Playing { events, .. } => events,
+			Self::Off(events) | Self::Playing { events, .. } => events,
 		}
 	}
 	pub fn reset(&mut self) {
