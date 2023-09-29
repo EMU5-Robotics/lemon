@@ -19,6 +19,7 @@ robot_algorithms = { git = "https://github.com/nonl4331/robot-algorithms" }
 nalgebra = { version = "0.32.3", features = ["libm-force", "alloc", "convert-mint"] }
 base64 = "0.21.3"
 uom = "0.35.0"
+typenum = "1.17.0"
 
 [[bin]]
 name = "imu"

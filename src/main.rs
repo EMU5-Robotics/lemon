@@ -4,9 +4,11 @@ use std::time::{Duration, Instant};
 
 mod motion_profile;
 mod odom;
+mod pid;
 mod replay;
 mod units;
 
+use crate::pid::*;
 use replay::{Player, Recorder};
 use units::*;
 
@@ -35,6 +37,10 @@ fn main() {
 	);
 
 	let mut odom = odom::DriveOdom::new(meter!(0.1285));
+
+	let _velocity_pid = VelocityPid::new(0.3, 0.3, 0.3, meter_per_second!(1.0));
+	let _angular_velocity_pid = AngularVelocityPid::new(0.3, 0.3, 0.3, radian_per_second!(1.0));
+	let _turning_pid = AnglePid::new(0.3, 0.3, 0.3, radian!(1.0));
 
 	let mut recorder = Recorder::new();
 	let mut player = Player::from_file("test.replay").unwrap_or_default();

@@ -1,81 +1,61 @@
-use crate::InitState;
-use std::time::Instant;
+use std::{marker::PhantomData, time::Instant};
+use uom::{si::*, ConstZero, ConversionFactor};
 
-struct Pid {
-    proportional_gain: f64,
-    integral_gain: f64,
-    derivitive_gain: f64,
-
-    target: f64,
-
-    integral_accum: f64,
-
-    prev_err: f64,
-    time: Instant,
+pub struct Pid<T: Dimension + ?Sized, O: Dimension + ?Sized> {
+	kp: f64,
+	ki: f64,
+	kd: f64,
+	target: Quantity<T, SI<f64>, f64>,
+	integral: f64,
+	prev_err: f64,
+	time: Instant,
+	output: PhantomData<O>,
 }
 
-impl Pid {
-    const INTEGRAL_MAX: f64 = f64::INFINITY;
-    const INTEGAAL_MIN: f64 = f64::NEG_INFINITY;
-    
-    #[inline]
-    pub fn kp(&self) -> f64 {
-        self.proportional_gain
-    }
-    #[inline]
-    pub fn ki(&self) -> f64 {
-        self.integral_gain
-    }
-    #[inline]
-    pub fn kd(&self) -> f64 {
-        self.derivitive_gain
-    }
+impl<T: Dimension + ?Sized, O: Dimension + ?Sized> Pid<T, O> {
+	pub fn new(kp: f64, ki: f64, kd: f64, target: Quantity<T, SI<f64>, f64>) -> Self {
+		Self {
+			kp,
+			ki,
+			kd,
+			target,
+			integral: ConstZero::ZERO,
+			prev_err: ConstZero::ZERO,
+			time: Instant::now(),
+			output: PhantomData,
+		}
+	}
+	pub fn step(&mut self, pv: Quantity<T, SI<f64>, f64>) -> Quantity<O, SI<f64>, f64> {
+		let pv = pv.value;
 
-    ///creates a new PID from a proportional gain `kp`, a integral gain `ki`, a derivitive gain `kd` and a setpoint and sample time.
-    pub fn new(kp: f64, ki: f64, kd: f64, target: f64) -> Self {
-        Self {
-            proportional_gain: kp,
-            integral_gain: ki,
-            derivitive_gain: kd,
-            target,
-            integral_accum: 0.0,
-            prev_error: 0.0,
-            time = Instant::now(),
-        }
-    }
+		let dt = self.time.duration_since(self.time).as_secs_f64();
+		self.time = Instant::now();
 
-    pub fn compute(&mut self, pv: f64) -> f64 {
-        let current = Instant::now();
-        let dt = current.duration_since(self.time).as_secs_f64();
-        let err = self.target - pv;
+		let err = self.target.value - pv;
 
-        let prop_term = self.proportional_gain * err;
+		let prop_term = self.kp * err;
 
-        let int_term = (self.integral_accum + self.integral_gain * err * dt).clamp(Self::INTEGRAL_MIN, Self::INTEGRAL_MAX);
+		// modifications to integration are done to prevent integral windup
+		// see https://en.wikipedia.org/wiki/Integral_windup
 
-        self.integral_accum = int_term;
+		// conditional integration
+		if err.abs().value() < self.ki.value() {
+			self.integral += self.ki * err * dt;
+		}
+		// clegg integrator
+		if (self.prev_err * err).value() < 0.0 {
+			self.integral = ConstZero::ZERO;
+		}
 
-        let deriv_term = self.derivitive_gain * (err - self.prev_err) / dt;
-
-        let out = prop_term + int_term + deriv_term;
-        self.prev_err = err;
-        self.time = current;
-        out
-    }
-
-
-    pub fn set_gains(&mut self, kp: f64, ki: f64, kd: f64) -> &mut Self {
-        self.proportional_gain = kp;
-        self.integral_gain = ki;
-        self.derivitive_gain = kd;
-        self
-    }
-    
-    pub fn set_target(&mut self, target: f64) -> &mut Self {
-        self.target = target;
-        self.integral_accum = 0.0;
-        self.prev_err = 0.0;
-        self
-    }
-
+		let deriv_term = self.kd * (err - self.prev_err) / dt;
+		Quantity {
+			dimension: PhantomData,
+			units: PhantomData,
+			value: prop_term + self.integral.value() + deriv_term,
+		}
+	}
 }
+
+pub type AnglePid = Pid<angle::Dimension, ratio::Dimension>;
+pub type AngularVelocityPid = Pid<angular_velocity::Dimension, ratio::Dimension>;
+pub type VelocityPid = Pid<velocity::Dimension, power::Dimension>;

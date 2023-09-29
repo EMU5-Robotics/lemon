@@ -4,6 +4,8 @@ use std::time::Instant;
 
 use crate::units::*;
 
+use uom::ConstZero;
+
 pub struct DriveOdom {
 	last_dist: (Length, Length),
 	angle: Angle,
@@ -15,14 +17,13 @@ pub struct DriveOdom {
 
 impl DriveOdom {
 	pub fn new(dw: Length) -> Self {
-		let vel = meter!(0.0) / second!(1.0);
 		Self {
-			last_dist: (meter!(0.0), meter!(0.0)),
+			last_dist: (ConstZero::ZERO, ConstZero::ZERO),
 			dw,
-			angle: radian!(0.0),
-			pos: (meter!(0.0), meter!(0.0)),
+			angle: ConstZero::ZERO,
+			pos: (ConstZero::ZERO, ConstZero::ZERO),
 			last_update: Instant::now(),
-			last_vel: (vel, vel),
+			last_vel: (ConstZero::ZERO, ConstZero::ZERO),
 		}
 	}
 	pub fn update(&mut self, pkt: &StatusPkt, drive: &mut Drive) -> Option<(Velocity, Velocity)> {
