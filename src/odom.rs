@@ -13,6 +13,7 @@ pub struct DriveOdom {
 	pos: (Length, Length),
 	update: Instant,
 	vel: (Velocity, Velocity),
+	side_vel: (Velocity, Velocity),
 	accel: (Acceleration, Acceleration),
 }
 
@@ -25,6 +26,7 @@ impl DriveOdom {
 			pos: (ConstZero::ZERO, ConstZero::ZERO),
 			update: Instant::now(),
 			vel: (ConstZero::ZERO, ConstZero::ZERO),
+			side_vel: (ConstZero::ZERO, ConstZero::ZERO),
 			accel: (ConstZero::ZERO, ConstZero::ZERO),
 		}
 	}
@@ -33,6 +35,9 @@ impl DriveOdom {
 		// relative to the sides on the robot
 		let (dist_l, dist_r) = drive.side_encoders(pkt)?;
 		let (diff_l, diff_r) = (dist_l - self.dist.0, dist_r - self.dist.1);
+
+		let time = second!(self.update.elapsed().as_secs_f64());
+		self.side_vel = (diff_l / time, diff_r / time);
 
 		// calculate displacement and change in angle for center of the robot
 		let diff_dist = 0.5 * (diff_l + diff_r);
@@ -49,7 +54,6 @@ impl DriveOdom {
 		self.angle += diff_angle;
 
 		// update state and calculate running averages
-		let time = second!(self.update.elapsed().as_secs_f64());
 		self.dist = (dist_l, dist_r);
 		self.update = Instant::now();
 
@@ -91,6 +95,9 @@ impl DriveOdom {
 	}
 	pub fn vel(&self) -> (Velocity, Velocity) {
 		self.vel
+	}
+	pub fn side_vel(&self) -> (Velocity, Velocity) {
+		self.side_vel
 	}
 	pub fn accel(&self) -> (Acceleration, Acceleration) {
 		self.accel

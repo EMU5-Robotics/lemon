@@ -109,9 +109,16 @@ impl PathSegment {
 					side_vel = side_vel * scale;
 				}
 
+				// set PID targets
+				left_vel_pid.change_target(-side_vel);
+				right_vel_pid.change_target(side_vel);
+
+				let cur_side_vel = odom.side_vel();
+
 				// todo: double check coordinate system
-				let left_power = left_vel_pid.step(-side_vel);
-				let right_power = right_vel_pid.step(side_vel);
+				// calculate motor powers with PIDs
+				let left_power = left_vel_pid.step(cur_side_vel.0);
+				let right_power = right_vel_pid.step(cur_side_vel.1);
 
 				Some((left_power, right_power))
 			}
@@ -158,9 +165,15 @@ impl PathSegment {
 					right_vel = right_vel * scale;
 				}
 
+				// set PID targets
+				left_vel_pid.change_target(left_vel);
+				right_vel_pid.change_target(right_vel);
+
+				let side_vel = odom.side_vel();
+
 				// calculate motor powers with PIDs
-				let left_power = left_vel_pid.step(left_vel);
-				let right_power = right_vel_pid.step(right_vel);
+				let left_power = left_vel_pid.step(side_vel.0);
+				let right_power = right_vel_pid.step(side_vel.1);
 
 				Some((left_power, right_power))
 			}
