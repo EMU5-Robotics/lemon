@@ -28,6 +28,7 @@ unit!(radian_per_second, angular_velocity, AngularVelocity);
 
 pub use degree::degree;
 pub use meter::meter;
+pub use meter_per_second::meter_per_second;
 pub use millisecond::millisecond;
 pub use radian::radian;
 pub use second::second;

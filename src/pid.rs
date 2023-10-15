@@ -54,8 +54,14 @@ impl<T: Dimension + ?Sized, O: Dimension + ?Sized> Pid<T, O> {
 			value: prop_term + self.integral.value() + deriv_term,
 		}
 	}
+	pub fn reset(&mut self) {
+		self.integral = 0.0;
+		self.time = Instant::now();
+	}
+	pub fn change_target(&mut self, target: Quantity<T, SI<f64>, f64>) {
+		self.target = target;
+	}
 }
 
-pub type AnglePid = Pid<angle::Dimension, ratio::Dimension>;
-pub type AngularVelocityPid = Pid<angular_velocity::Dimension, ratio::Dimension>;
+pub type AnglePid = Pid<angle::Dimension, angular_velocity::Dimension>;
 pub type VelocityPid = Pid<velocity::Dimension, power::Dimension>;

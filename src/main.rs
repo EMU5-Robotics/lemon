@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 mod motion_profile;
 mod odom;
+mod path;
 mod pid;
 mod replay;
 mod units;
@@ -39,7 +40,7 @@ fn main() {
 	let mut odom = odom::DriveOdom::new(meter!(0.1285));
 
 	let _velocity_pid = VelocityPid::new(0.3, 0.3, 0.3, meter_per_second!(1.0));
-	let _angular_velocity_pid = AngularVelocityPid::new(0.3, 0.3, 0.3, radian_per_second!(1.0));
+	let _right_velocity_pid = VelocityPid::new(0.3, 0.3, 0.3, meter_per_second!(1.0));
 	let _turning_pid = AnglePid::new(0.3, 0.3, 0.3, radian!(1.0));
 
 	let mut recorder = Recorder::new();

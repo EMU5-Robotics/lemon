@@ -1,12 +1,12 @@
 use robot_algorithms::prelude::*;
 use uom::si::f64::Velocity;
 
-pub fn get_profile_velocity(profile: (&[Velocity], &[Vec2]), pos: &Vec2) -> Velocity {
+pub fn get_profile_velocity(profile: (&[Velocity], &[Vec2]), pos: Pos2) -> Velocity {
 	let (vel, points) = profile;
 	assert_eq!(vel.len(), points.len());
 	assert!(!vel.is_empty());
 
-	let dist = |point: &Vec2| (pos - point).magnitude_squared();
+	let dist = |point: &Vec2| (pos - point).coords.magnitude_squared();
 
 	points
 		.iter()
