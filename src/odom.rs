@@ -1,8 +1,12 @@
 use crate::Drive;
 use protocol::StatusPkt;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::units::*;
+use rerun::{
+	archetypes::TimeSeriesScalar, components::Position2D, Arrows3D, Points2D, Points3D, Position3D,
+	Vector3D,
+};
 
 use uom::ConstZero;
 
@@ -15,6 +19,7 @@ pub struct DriveOdom {
 	vel: (Velocity, Velocity),
 	side_vel: (Velocity, Velocity),
 	accel: (Acceleration, Acceleration),
+	last_log: Instant,
 }
 
 impl DriveOdom {
@@ -28,6 +33,7 @@ impl DriveOdom {
 			vel: (ConstZero::ZERO, ConstZero::ZERO),
 			side_vel: (ConstZero::ZERO, ConstZero::ZERO),
 			accel: (ConstZero::ZERO, ConstZero::ZERO),
+			last_log: Instant::now(),
 		}
 	}
 	pub fn update(&mut self, pkt: &StatusPkt, drive: &mut Drive) -> Option<()> {
@@ -64,27 +70,41 @@ impl DriveOdom {
 		self.accel = accel;
 
 		self.vel = vel;
-		use uom::{
-			fmt::DisplayStyle::Abbreviation,
-			si::{
-				acceleration::meter_per_second_squared, angle::degree, length::meter,
-				time::millisecond, velocity::meter_per_second,
-			},
-		};
-
-		log::info!(
-			"pos: ({:+.2}, {:+.2}) | angle: ({:+.2}) | vel: ({:+.2}, {:+.2}) | diff_vel: ({:+.2}, {:+.2}) | accel: ({:+.2}, {:+.2}) | {:.2}",
-			self.pos.0.into_format_args(meter, Abbreviation),
-			self.pos.1.into_format_args(meter, Abbreviation),
-			self.angle.into_format_args(degree, Abbreviation),
-			vel.0.into_format_args(meter_per_second, Abbreviation),
-			vel.1.into_format_args(meter_per_second, Abbreviation),
-			diff_vel.0.into_format_args(meter_per_second, Abbreviation),
-			diff_vel.1.into_format_args(meter_per_second, Abbreviation),
-                        accel.0.into_format_args(meter_per_second_squared, Abbreviation),
-                        accel.1.into_format_args(meter_per_second_squared, Abbreviation),
-			time.into_format_args(millisecond, Abbreviation),
-		);
+		if self.last_log.elapsed() > Duration::from_millis(1) {
+			self.last_log = Instant::now();
+			crate::RERUN_REC.set_time_seconds("odom", crate::PROGRAM_START.elapsed().as_secs_f64());
+			crate::RERUN_REC
+				.log("odom/vel/x", &TimeSeriesScalar::new(self.vel.0.value))
+				.unwrap();
+			crate::RERUN_REC
+				.log("odom/vel/y", &TimeSeriesScalar::new(self.vel.1.value))
+				.unwrap();
+			crate::RERUN_REC
+				.log(
+					"odom/encoders/left",
+					&TimeSeriesScalar::new(dist_l.value).with_color([255, 0, 0]),
+				)
+				.unwrap();
+			crate::RERUN_REC
+				.log(
+					"odom/encoders/right",
+					&TimeSeriesScalar::new(dist_r.value).with_color([0, 255, 0]),
+				)
+				.unwrap();
+			let (dist_l, dist_r) = drive.raw_side_encoders(&pkt)?;
+			crate::RERUN_REC
+				.log(
+					"odom/raw/encoders/left",
+					&TimeSeriesScalar::new(dist_l.value).with_color([127, 0, 0]),
+				)
+				.unwrap();
+			crate::RERUN_REC
+				.log(
+					"odom/raw/encoders/right",
+					&TimeSeriesScalar::new(dist_r.value).with_color([0, 127, 0]),
+				)
+				.unwrap();
+		}
 		Some(())
 	}
 	pub fn pos(&self) -> (Length, Length) {

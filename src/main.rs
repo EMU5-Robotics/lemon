@@ -1,6 +1,10 @@
 use client::coprocessor::serial::{find_v5_port, Serial, SerialData};
 use protocol::{device::ControllerButtons, ControlPkt, StatusPkt};
-use std::time::{Duration, Instant};
+use rerun::{default_server_addr, RecordingStream, RecordingStreamBuilder};
+use std::{
+	error::Error,
+	time::{Duration, Instant},
+};
 
 mod motion_profile;
 mod odom;
@@ -13,11 +17,34 @@ use crate::pid::*;
 use replay::{Player, Recorder};
 use units::*;
 
-fn main() {
-	common::create_logger();
+use once_cell::sync::Lazy;
 
-	let ports = find_v5_port().unwrap();
-	let serial = Serial::open(&ports.0.port_name).unwrap();
+pub static RERUN_REC: Lazy<RecordingStream> = Lazy::new(|| {
+	RecordingStreamBuilder::new("lemon")
+		//.default_enabled(false)
+		.connect(
+			"192.168.240.179:9876".parse().unwrap(),
+			Some(Duration::from_millis(2_000)),
+		)
+		.unwrap_or(
+			RecordingStreamBuilder::new("lemon (file fallback)")
+				.save("recording.rrd")
+				.unwrap(),
+		)
+});
+
+pub static PROGRAM_START: Lazy<Instant> = Lazy::new(|| Instant::now());
+
+fn main() -> Result<(), Box<dyn Error>> {
+	once_cell::sync::Lazy::<Instant>::force(&PROGRAM_START);
+
+	rerun::Logger::new(RERUN_REC.clone())
+		.with_path_prefix("logs")
+		.with_filter(rerun::default_log_filter())
+		.init()?;
+
+	let ports = find_v5_port()?;
+	let serial = Serial::open(&ports.0.port_name)?;
 	let data = serial.spawn_threaded();
 
 	let mut last = get_input(&data);
@@ -208,10 +235,7 @@ impl Drive {
 	pub fn side_encoders(&mut self, pkt: &StatusPkt) -> Option<(Length, Length)> {
 		let smooth_window: Time = millisecond!(40.0);
 
-		let (mut l, mut r) = (
-			meter!(pkt.get_encoder(1)? as f64 * 0.006),
-			meter!(pkt.get_encoder(20)? as f64 * 0.006),
-		);
+		let (mut l, mut r) = self.raw_side_encoders(pkt)?;
 
 		// smooth encoder values to avoid aliasing issues
 		let elapsed = second!(self.last_update.elapsed().as_secs_f64());
@@ -226,6 +250,12 @@ impl Drive {
 		self.last_encoder = (l, r);
 
 		Some((l, r))
+	}
+	pub fn raw_side_encoders(&mut self, pkt: &StatusPkt) -> Option<(Length, Length)> {
+		Some((
+			meter!(pkt.get_encoder(1)? as f64 * 0.006),
+			meter!(pkt.get_encoder(20)? as f64 * 0.006),
+		))
 	}
 }
 
