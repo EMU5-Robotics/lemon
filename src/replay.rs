@@ -1,8 +1,11 @@
-use crate::InputChanges;
+use crate::state::InputChanges;
 use chrono::prelude::*;
 use protocol::device::ControllerButtons;
-use std::io::{self, BufRead, Write};
-use std::{fmt, time::Instant};
+use std::{
+	fmt,
+	io::{self, BufRead, Write},
+	time::Instant,
+};
 
 #[derive(Debug)]
 pub enum ReplayError {
@@ -29,7 +32,7 @@ impl From<io::Error> for ReplayError {
 	}
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Recorder {
 	Off,
 	Waiting(Instant),
@@ -42,6 +45,10 @@ pub enum Recorder {
 impl Recorder {
 	pub fn new() -> Self {
 		Self::Off
+	}
+
+	pub fn is_on(&self) -> bool {
+		!matches!(self, Recorder::Off)
 	}
 
 	pub fn toggle(&mut self) -> Result<(), ReplayError> {
@@ -64,7 +71,7 @@ impl Recorder {
 		match self {
 			Self::Off => {}
 			Self::Waiting(ref last) | Self::Recording { ref last, .. } => {
-				if !changes.changes() {
+				if !changes.change_occured() {
 					return Ok(());
 				}
 
@@ -109,7 +116,8 @@ impl Recorder {
 				changes.pressed.bits(),
 				changes.released.bits()
 			)?;
-			if let Some(axes) = changes.axes {
+			if changes.axes_changed() {
+				let axes = changes.axes();
 				writeln!(file, ",{},{},{},{}", axes[0], axes[1], axes[2], axes[3])
 			} else {
 				writeln!(file)
@@ -142,10 +150,11 @@ impl Player {
 		let mut reader = std::io::BufReader::new(file);
 
 		let mut events = Vec::new();
+		let mut held = ControllerButtons::empty();
 
 		let mut line = 1;
 		loop {
-			let mut changes = InputChanges::NOCHANGE;
+			let mut changes = InputChanges::NO_CHANGE;
 			let mut string = String::new();
 			if reader.read_line(&mut string).is_err() {
 				break;
@@ -177,6 +186,7 @@ impl Player {
 				)));
 			};
 			changes.pressed = pressed;
+			held.set(pressed, true);
 
 			let Ok(Some(released)) = things[2].parse::<u16>().map(ControllerButtons::from_bits)
 			else {
@@ -186,6 +196,7 @@ impl Player {
 				)));
 			};
 			changes.released = released;
+			held.set(released, false);
 
 			if length == 7 {
 				let Ok(lx) = things[3].parse::<i8>() else {
@@ -212,8 +223,10 @@ impl Player {
 						things[6]
 					)));
 				};
-				changes.axes = Some([lx, ly, rx, ry]);
+				changes.axes = [lx, ly, rx, ry];
+				changes.axes_changed = true;
 			}
+			changes.held = held;
 			events.push((diff_time, changes));
 			line += 1;
 		}
