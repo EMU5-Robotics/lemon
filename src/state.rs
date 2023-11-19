@@ -31,7 +31,7 @@ pub struct GlobalState {
 }
 
 impl GlobalState {
-	pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+	pub fn new() -> anyhow::Result<Self> {
 		let network = match std::env::var("NETWORK_DEBUG") {
 			Ok(_) => {
 				let mut network = Network::connect();
@@ -66,10 +66,10 @@ impl GlobalState {
 
 	pub fn take_motor(&self, port: usize, reversed: bool) -> Motor {
 		assert!((1..=20).contains(&port), "Invalid motor port");
-		match self.taken_motors[port] {
+		match self.taken_motors[port - 1] {
 			true => panic!("Motor has already been taken"),
 			false => {
-				let motor = self.motors[port].clone();
+				let motor = self.motors[port - 1].clone();
 				motor.set_reversed(reversed);
 				motor
 			}

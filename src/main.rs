@@ -11,7 +11,9 @@ mod replay;
 mod state;
 mod units;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> anyhow::Result<()> {
+	dotenvy::dotenv().ok();
+
 	let mut state = GlobalState::new()?;
 	let mut input = state.create_input_state();
 
@@ -63,8 +65,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			}
 
 			let axes = input.controller.axes_as_f32();
-			let d_power = axes[0];
-			let t_power = axes[1];
+			let d_power = axes[1];
+			let t_power = axes[2];
 			drive.drive(d_power, t_power);
 
 			odom.update(&mut drive);

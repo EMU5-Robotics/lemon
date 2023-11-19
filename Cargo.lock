@@ -948,6 +948,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dotenvy"
+version = "0.15.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
+
+[[package]]
 name = "dyn-clone"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1154,7 +1160,7 @@ checksum = "02c69ce7e7c0f17aa18fdd9d0de39727adb9c6281f2ad12f57cbe54ae6e76e7d"
 dependencies = [
  "az",
  "bytemuck",
- "half 1.8.2",
+ "half 2.3.1",
  "serde",
  "typenum",
 ]
@@ -1550,11 +1556,13 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 name = "lemon"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "base64",
  "bno055",
  "chrono",
  "client",
  "common",
+ "dotenvy",
  "embedded-hal 0.2.7",
  "log",
  "nalgebra",

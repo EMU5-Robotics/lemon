@@ -1,0 +1,13 @@
+[Unit]
+Description="Lemon" robot code
+
+[Service]
+Type=exec
+User=emu5
+WorkingDirectory=/home/emu5
+ExecStart=/home/emu5/lemon
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+

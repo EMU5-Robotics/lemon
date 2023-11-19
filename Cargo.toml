@@ -11,6 +11,8 @@ protocol = { path = "../transport/vex/protocol" }
 chrono = "0.4.28"
 log = "0.4"
 rerun = { version = "0.9.1", default_features = false, features = ["log", "sdk"] }
+dotenvy = "0.15.7"
+anyhow = "1.0"
 
 bno055 = { version = "0.3.3", features = ["std"] }
 embedded-hal = { version = "0.2.7", features = ["unproven"] }
