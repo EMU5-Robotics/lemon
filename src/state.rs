@@ -32,15 +32,19 @@ pub struct GlobalState {
 
 impl GlobalState {
 	pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+		let network = match std::env::var("NETWORK_DEBUG") {
+			Ok(_) => {
+				let mut network = Network::connect();
+				network.wait_for_rerun_server();
+				network
+			}
+			Err(_) => Network::disconnected(),
+		};
+
 		let serial = {
 			let ports = find_v5_port()?;
 			let serial_port = SerialSpawner::open(&ports.0.port_name)?;
 			serial_port.spawn_threaded(None)
-		};
-
-		let network = match std::env::var("NETWORK_DEBUG") {
-			Ok(_) => Network::connect(),
-			Err(_) => Network::disconnected(),
 		};
 
 		let motors = (1..=20)
@@ -163,73 +167,81 @@ impl InputState {
 
 struct NetworkInner {
 	network_client: Client,
-	program_start: Instant,
-	rerun_stream: Option<RecordingStream>,
 }
 
 #[derive(Clone)]
-pub struct Network(Arc<Mutex<Option<NetworkInner>>>);
+pub struct Network(Arc<Mutex<(Option<NetworkInner>, RerunLogger)>>);
 
 impl Network {
 	pub fn disconnected() -> Self {
-		Network(Arc::new(Mutex::new(None)))
+		let rerun = RecordingStreamBuilder::new("lemon")
+			.save("recording.rrd")
+			.unwrap();
+		rerun::Logger::new(rerun.clone())
+			.with_path_prefix("logs")
+			.with_filter(rerun::default_log_filter())
+			.init()
+			.unwrap();
+		let logger = RerunLogger(Instant::now(), Some(rerun));
+
+		Network(Arc::new(Mutex::new((None, logger))))
 	}
 
 	pub fn connect() -> Self {
-		let network = Self::disconnected();
-		let program_start = Instant::now();
+		let network = Network(Arc::new(Mutex::new((None, RerunLogger::default()))));
 
 		let net = network.clone();
+
 		std::thread::spawn(move || {
 			// Try and find the server and connect to it
 			let addr = listen_for_server().unwrap();
 			let client = Client::connect_threaded(addr, ClientConfiguration::default());
 			// Update resources
-			*net.0.lock().unwrap() = Some(NetworkInner {
+			net.0.lock().unwrap().0 = Some(NetworkInner {
 				network_client: client,
-				program_start,
-				rerun_stream: None,
 			});
-
-			loop {
-				if let Some(net) = net.0.lock().unwrap().as_mut() {
-					let pkt = net.network_client.rx.recv().unwrap();
-					match pkt.msg {
-						common::protocol::ControlMessage::ManageMessage(msg) => match msg {
-							common::protocol::ManageMessage::AnnounceRerunServer(addr) => {
-								let rerun =
-									RecordingStreamBuilder::new(net.network_client.name.clone())
-										.connect(addr, Some(Duration::from_millis(2_000)))
-										.unwrap_or(
-											RecordingStreamBuilder::new("lemon (file fallback)")
-												.save("recording.rrd")
-												.unwrap(),
-										);
-								rerun::Logger::new(rerun.clone())
-									.with_path_prefix("logs")
-									.with_filter(rerun::default_log_filter())
-									.init()
-									.unwrap();
-								net.rerun_stream = Some(rerun);
-							}
-							_ => {}
-						},
-						_ => {}
-					}
-				}
-			}
 		});
 
 		network
 	}
 
-	pub fn rerun_logger(&self) -> RerunLogger {
-		match *self.0.lock().unwrap() {
-			Some(ref network) => {
-				RerunLogger(network.program_start.clone(), network.rerun_stream.clone())
+	pub fn wait_for_rerun_server(&mut self) {
+		let program_start = Instant::now();
+		loop {
+			let mut mutex = self.0.lock().unwrap();
+			if let Some(net) = mutex.0.as_mut() {
+				let pkt = net.network_client.rx.recv().unwrap();
+				match pkt.msg {
+					common::protocol::ControlMessage::ManageMessage(msg) => match msg {
+						common::protocol::ManageMessage::AnnounceRerunServer(addr) => {
+							let rerun =
+								RecordingStreamBuilder::new(net.network_client.name.clone())
+									.connect(addr, Some(Duration::from_millis(2_000)))
+									.unwrap_or(
+										RecordingStreamBuilder::new("lemon (file fallback)")
+											.save("recording.rrd")
+											.unwrap(),
+									);
+							rerun::Logger::new(rerun.clone())
+								.with_path_prefix("logs")
+								.with_filter(rerun::default_log_filter())
+								.init()
+								.unwrap();
+							mutex.1 = RerunLogger(program_start, Some(rerun));
+							return;
+						}
+						_ => {}
+					},
+					_ => {}
+				}
 			}
-			None => RerunLogger::default(),
+			drop(mutex);
+			std::thread::sleep(Duration::from_millis(1));
 		}
+	}
+
+	pub fn rerun_logger(&self) -> RerunLogger {
+		self.0.lock().unwrap().1.clone()
 	}
 }
 
