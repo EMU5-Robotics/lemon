@@ -141,6 +141,10 @@ impl InputState {
 		self.v5_status = v5_status;
 		self.controller = InputChanges::from_difference(&self.v5_status_last.1, &self.v5_status.1);
 
+		for motor in self.motors.iter() {
+			motor.0.connected.store(false, Ordering::Release);
+		}
+
 		for (port, state) in self.v5_status.1.motors() {
 			let motor = &self.motors[port as usize];
 			motor.0.connected.store(true, Ordering::Release);
