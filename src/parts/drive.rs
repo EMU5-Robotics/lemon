@@ -67,7 +67,7 @@ impl Drive {
 
 		const MULTIPLIER: f64 = 1.0 / 150000.0;
 		Some((
-			meter!(self.left[0].position() as f64 * MULTIPLIER),
+			meter!(self.left[2].position() as f64 * MULTIPLIER),
 			meter!(self.right[0].position() as f64 * MULTIPLIER),
 		))
 	}

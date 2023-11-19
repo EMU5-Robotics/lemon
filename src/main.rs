@@ -2,6 +2,7 @@ use protocol::device::ControllerButtons;
 
 use crate::{state::GlobalState, units::*};
 
+mod logging;
 mod motion_profile;
 mod odom;
 mod parts;

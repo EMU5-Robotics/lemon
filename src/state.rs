@@ -143,6 +143,7 @@ impl InputState {
 
 		for (port, state) in self.v5_status.1.motors() {
 			let motor = &self.motors[port as usize];
+			motor.0.connected.store(true, Ordering::Release);
 			motor.0.current.store(state.current as _, Ordering::Release);
 		}
 
@@ -175,8 +176,13 @@ pub struct Network(Arc<Mutex<(Option<NetworkInner>, RerunLogger)>>);
 impl Network {
 	pub fn disconnected() -> Self {
 		let rerun = RecordingStreamBuilder::new("lemon")
-			.save("recording.rrd")
-			.unwrap();
+			.connect_opts(
+				"192.168.222.179:9876".parse().unwrap(),
+				Some(Duration::from_millis(2_000)),
+			)
+			.unwrap(); /*RecordingStreamBuilder::new("lemon")
+		   .save("recording.rrd")
+		   .unwrap();*/
 		rerun::Logger::new(rerun.clone())
 			.with_path_prefix("logs")
 			.with_filter(rerun::default_log_filter())
@@ -216,7 +222,7 @@ impl Network {
 						common::protocol::ManageMessage::AnnounceRerunServer(addr) => {
 							let rerun =
 								RecordingStreamBuilder::new(net.network_client.name.clone())
-									.connect(addr, Some(Duration::from_millis(2_000)))
+									.connect_opts(addr, Some(Duration::from_millis(2_000)))
 									.unwrap_or(
 										RecordingStreamBuilder::new("lemon (file fallback)")
 											.save("recording.rrd")
@@ -252,7 +258,9 @@ impl RerunLogger {
 	#[inline]
 	pub fn with<F: FnOnce(&RecordingStream, Instant)>(&self, f: F) {
 		match self.1 {
-			Some(ref stream) => f(stream, self.0),
+			Some(ref stream) => {
+				f(stream, self.0);
+			}
 			None => (),
 		}
 	}

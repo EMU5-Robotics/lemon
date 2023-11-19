@@ -1,12 +1,16 @@
-use std::{
-	f64::consts::PI,
-	time::{Duration, Instant},
-};
+use std::f64::consts::PI;
+use std::time::{Duration, Instant};
 
-use rerun::archetypes::TimeSeriesScalar;
 use uom::ConstZero;
 
-use crate::{parts::drive::Drive, state::RerunLogger, units::*};
+use crate::{logging::*, parts::drive::Drive, state::RerunLogger, units::*};
+
+use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
+type RingBuf<T, const N: usize> = ConstGenericRingBuffer<T, N>;
+
+fn get_vel<const N: usize>(rb: &RingBuf<Velocity, N>) -> Velocity {
+	rb.iter().cloned().reduce(|a, b| a + b).unwrap() / N as f64
+}
 
 pub struct DriveOdom {
 	dist: (Length, Length),
@@ -15,8 +19,7 @@ pub struct DriveOdom {
 	pos: (Length, Length),
 	update: Instant,
 	vel: (Velocity, Velocity),
-	side_vel: (Velocity, Velocity),
-	accel: (Acceleration, Acceleration),
+	side_vels: (RingBuf<Velocity, 5>, RingBuf<Velocity, 5>),
 	last_log: Instant,
 	logger: RerunLogger,
 }
@@ -30,21 +33,24 @@ impl DriveOdom {
 			pos: (ConstZero::ZERO, ConstZero::ZERO),
 			update: Instant::now(),
 			vel: (ConstZero::ZERO, ConstZero::ZERO),
-			side_vel: (ConstZero::ZERO, ConstZero::ZERO),
-			accel: (ConstZero::ZERO, ConstZero::ZERO),
+			side_vels: (RingBuf::new(), RingBuf::new()),
 			last_log: Instant::now(),
 			logger,
 		}
 	}
 
 	pub fn update(&mut self, drive: &mut Drive) -> Option<()> {
+		if self.update.elapsed() < Duration::from_micros(5200) {
+			return Some(());
+		}
 		// get displacement and change in displacement
 		// relative to the sides on the robot
 		let (dist_l, dist_r) = drive.get_encoders()?;
 		let (diff_l, diff_r) = (dist_l - self.dist.0, dist_r - self.dist.1);
 
 		let time = second!(self.update.elapsed().as_secs_f64());
-		self.side_vel = (diff_l / time, diff_r / time);
+		self.side_vels.0.push(diff_l / time);
+		self.side_vels.1.push(diff_r / time);
 
 		// calculate displacement and change in angle for center of the robot
 		let diff_dist = 0.5 * (diff_l + diff_r);
@@ -65,107 +71,36 @@ impl DriveOdom {
 		self.update = Instant::now();
 
 		let vel = (dx / time, dy / time);
-		let diff_vel = (vel.0 - self.vel.0, vel.1 - self.vel.1);
-
-		let accel = (diff_vel.0 / time, diff_vel.1 / time);
-		self.accel = accel;
 
 		self.vel = vel;
 		if self.last_log.elapsed() > Duration::from_millis(0) {
 			self.last_log = Instant::now();
 			self.logger.with(|rerun, start| {
 				rerun.set_time_seconds("odom", start.elapsed().as_secs_f64());
-				rerun
-					.log("odom/diff/l", &TimeSeriesScalar::new(diff_l.value))
-					.unwrap();
-				rerun
-					.log("odom/diff/r", &TimeSeriesScalar::new(diff_r.value))
-					.unwrap();
-				rerun
-					.log("odom/diff/angle", &TimeSeriesScalar::new(diff_angle.value))
-					.unwrap();
-				rerun
-					.log("odom/diff/dist", &TimeSeriesScalar::new(diff_dist.value))
-					.unwrap();
-				rerun
-					.log("odom/vel/x", &TimeSeriesScalar::new(self.vel.0.value))
-					.unwrap();
-				rerun
-					.log("odom/vel/y", &TimeSeriesScalar::new(self.vel.1.value))
-					.unwrap();
-				rerun
-					.log(
-						"odom/side_vel/x",
-						&TimeSeriesScalar::new(self.side_vel.0.value),
-					)
-					.unwrap();
-				rerun
-					.log(
-						"odom/side_vel/y",
-						&TimeSeriesScalar::new(self.side_vel.1.value),
-					)
-					.unwrap();
-				rerun
-					.log(
-						"odom/encoders/left",
-						&TimeSeriesScalar::new(dist_l.value).with_color([255, 0, 0]),
-					)
-					.unwrap();
-				rerun
-					.log(
-						"odom/encoders/right",
-						&TimeSeriesScalar::new(dist_r.value).with_color([0, 255, 0]),
-					)
-					.unwrap();
-				rerun
-					.log(
-						"odom/encoders/delta",
-						&TimeSeriesScalar::new(dist_r.value - dist_l.value).with_color([0, 0, 255]),
-					)
-					.unwrap();
 
+				timeseries(rerun, "odom/side_vel/x", get_vel(&self.side_vels.0).value);
+				timeseries(rerun, "odom/side_vel/y", get_vel(&self.side_vels.1).value);
+
+				// encoders
+				timeseries_colour(rerun, "odom/encoders/left", dist_l.value, [255, 0, 0]);
+				timeseries_colour(rerun, "odom/encoders/right", dist_r.value, [0, 255, 0]);
+
+				// encoders (raw)
 				let (dist_l, dist_r) = drive
 					.get_encoders_raw()
 					.unwrap_or((meter!(0.0), meter!(0.0)));
-				rerun
-					.log(
-						"odom/raw/encoders/left",
-						&TimeSeriesScalar::new(dist_l.value).with_color([127, 0, 0]),
-					)
-					.unwrap();
-				rerun
-					.log(
-						"odom/raw/encoders/right",
-						&TimeSeriesScalar::new(dist_r.value).with_color([0, 127, 0]),
-					)
-					.unwrap();
-				rerun
-					.log(
-						"odom/raw/encoders/delta",
-						&TimeSeriesScalar::new(dist_r.value - dist_l.value).with_color([0, 0, 127]),
-					)
-					.unwrap();
+				timeseries_colour(rerun, "odom/raw/encoders/left", dist_l.value, [127, 0, 0]);
+				timeseries_colour(rerun, "odom/raw/encoders/right", dist_r.value, [0, 127, 0]);
 
-				// position
-				rerun
-					.log(
-						"odom/pos/x",
-						&TimeSeriesScalar::new(self.pos.0.value).with_color([127, 0, 127]),
-					)
-					.unwrap();
-				rerun
-					.log(
-						"odom/pos/y",
-						&TimeSeriesScalar::new(self.pos.1.value).with_color([0, 127, 127]),
-					)
-					.unwrap();
-				rerun
-					.log(
-						"odom/angle",
-						&TimeSeriesScalar::new(self.angle.value * 180.0 / PI)
-							.with_color([127, 127, 127]),
-					)
-					.unwrap();
+				// pos
+				timeseries_colour(rerun, "odom/pos/x", self.pos.0.value, [127, 0, 127]);
+				timeseries_colour(rerun, "odom/pos/y", self.pos.1.value, [0, 127, 127]);
+				timeseries_colour(
+					rerun,
+					"odom/angle",
+					self.angle.value * 180.0 / PI,
+					[127, 127, 127],
+				);
 			});
 		}
 		Some(())
@@ -184,10 +119,6 @@ impl DriveOdom {
 	}
 
 	pub fn side_vel(&self) -> (Velocity, Velocity) {
-		self.side_vel
-	}
-
-	pub fn accel(&self) -> (Acceleration, Acceleration) {
-		self.accel
+		(get_vel(&self.side_vels.0), get_vel(&self.side_vels.1))
 	}
 }

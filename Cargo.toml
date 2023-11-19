@@ -10,7 +10,7 @@ protocol = { path = "../transport/vex/protocol" }
 
 chrono = "0.4.28"
 log = "0.4"
-rerun = { version = "0.9.1", default_features = false, features = ["log", "sdk"] }
+rerun = { version = "0.10.1", default_features = false, features = ["log", "sdk"] }
 dotenvy = "0.15.7"
 anyhow = "1.0"
 
@@ -24,6 +24,7 @@ base64 = "0.21.3"
 uom = "0.35.0"
 typenum = "1.17.0"
 once_cell = "1.18.0"
+ringbuffer = "0.15.0"
 
 [profile.dev]
 strip = "debuginfo"
