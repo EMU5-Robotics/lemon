@@ -1,6 +1,10 @@
 use protocol::device::ControllerButtons;
 
-use crate::{state::GlobalState, units::*};
+use crate::{
+	replay::Player,
+	state::{GlobalState, InputChanges, InputState},
+	units::*,
+};
 
 mod logging;
 mod motion_profile;
@@ -12,6 +16,19 @@ mod replay;
 mod state;
 mod units;
 
+/* Test Drive
+[
+	state.take_motor(10, true),
+	state.take_motor(2, true),
+	state.take_motor(1, false),
+],
+[
+	state.take_motor(20, false),
+	state.take_motor(12, false),
+	state.take_motor(11, true),
+],
+*/
+
 fn main() -> anyhow::Result<()> {
 	dotenvy::dotenv().ok();
 
@@ -20,25 +37,29 @@ fn main() -> anyhow::Result<()> {
 
 	let mut drive = parts::drive::Drive::new(
 		[
-			state.take_motor(10, true),
-			state.take_motor(2, true),
-			state.take_motor(1, false),
+			state.take_motor(4, false),
+			state.take_motor(5, false),
+			state.take_motor(13, false),
 		],
 		[
-			state.take_motor(20, false),
-			state.take_motor(12, false),
-			state.take_motor(11, true),
+			state.take_motor(1, true),
+			state.take_motor(2, true),
+			state.take_motor(3, true),
 		],
 		0.8,
 	);
 	let mut odom = odom::DriveOdom::new(state.network.rerun_logger(), meter!(0.1285));
 
+	let flipper = state.take_motor(11, true);
+
 	loop {
 		/*** Gather all input from serial, sensors, etc. ***/
 		if let Some(status_pkt) = state.serial.take_status_pkt() {
 			input.update_v5_status(status_pkt);
+		} else {
+			input.update_inputs();
 		}
-		input.update_replay_input(state.player.as_mut());
+		input.overwrite_replay_input(&mut state.player);
 
 		/*** Process inputs to parts ***/
 		// V5 motors are implicitly updated by `update_v5_status()`
@@ -47,23 +68,9 @@ fn main() -> anyhow::Result<()> {
 
 		// Simple testing code for now
 		{
-			if input.controller.button_released(ControllerButtons::A)
-				|| (input.controller.button_pressed(ControllerButtons::A) && state.recorder.is_on())
-			{
-				if let Err(e) = state.recorder.toggle() {
-					log::error!("recorder toggle failed with: {e}");
-				}
-			}
+			handle_replay(&mut input, &mut state);
 
-			if let Some(player) = state.player.take() {
-				if input.controller.button_released(ControllerButtons::B) {
-					state.player = Some(player.play());
-				}
-			}
-
-			if let Err(e) = state.recorder.take_event(&input.controller) {
-				log::error!("recorder failed to take event with: {e}");
-			}
+			flipper.voltage(flipper_mv(input.controller));
 
 			let axes = input.controller.axes_as_f32();
 			let d_power = axes[1];
@@ -76,5 +83,37 @@ fn main() -> anyhow::Result<()> {
 		/*** Write motor outputs to V5 ***/
 		state.write_serial_output();
 		state.loop_delay(); // Make sure we sleep at least little bit each iteration
+	}
+}
+
+fn handle_replay(input: &mut InputState, state: &mut GlobalState) {
+	// Toggle recording
+	if state.player.is_none() && input.controller.button_pressed(ControllerButtons::A) {
+		log::info!("Toggle recording");
+		if let Err(e) = state.recorder.toggle() {
+			log::error!("recorder toggle failed with: {e}");
+		}
+	}
+
+	// Load and start recording
+	if state.player.is_none() && input.controller.button_pressed(ControllerButtons::B) {
+		// Load the player and start it
+		state.player = Player::from_file("test.replay").map(Player::play).ok();
+		// log::info!("Player is {}", if state.player.is_some() {"Some(_)"} else {"None"});
+	}
+
+	// Update the recorder
+	if let Err(e) = state.recorder.take_event(&input.controller) {
+		log::error!("recorder failed to take event with: {e}");
+	}
+}
+
+fn flipper_mv(input: InputChanges) -> i16 {
+	if input.button_held(ControllerButtons::R1) {
+		12_000
+	} else if input.button_held(ControllerButtons::R2) {
+		-12_000
+	} else {
+		0
 	}
 }

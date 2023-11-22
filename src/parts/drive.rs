@@ -12,7 +12,7 @@ pub struct Drive {
 	last_update: Instant,
 }
 
-const MAX_MILLIVOLT: f32 = 4000.0;
+const MAX_MILLIVOLT: f32 = 12_000.0;
 
 impl Drive {
 	pub fn new(left: [Motor; 3], right: [Motor; 3], turn_rate: f32) -> Self {
@@ -65,10 +65,19 @@ impl Drive {
 			return None;
 		}
 
+		let l_rev = match self.left[0].is_reversed() {
+			true => -1.0,
+			false => 1.0,
+		};
+		let r_rev = match self.right[0].is_reversed() {
+			true => -1.0,
+			false => 1.0,
+		};
+
 		const MULTIPLIER: f64 = 1.0 / 150000.0;
 		Some((
-			meter!(self.left[2].position() as f64 * MULTIPLIER),
-			meter!(self.right[0].position() as f64 * MULTIPLIER),
+			meter!(self.left[0].position() as f64 * l_rev * MULTIPLIER),
+			meter!(self.right[0].position() as f64 * r_rev * MULTIPLIER),
 		))
 	}
 }

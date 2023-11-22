@@ -100,7 +100,7 @@ impl GlobalState {
 			if devices.get_port(motor.port() as _).is_motor() {
 				// Get the state of the output
 				let power = motor.0.voltage.load(Ordering::Acquire);
-				let reversed = motor.0.reversed.load(Ordering::Acquire);
+				let reversed = motor.is_reversed();
 				// Set the power
 				control.set_power(motor.port() as _, if reversed { -power } else { power })
 			}
@@ -122,6 +122,7 @@ pub struct InputState {
 	pub v5_status: (Instant, StatusPkt),
 	v5_status_last: (Instant, StatusPkt),
 	pub controller: InputChanges,
+	replay_last: Option<InputChanges>,
 	// gyro_rotation: f32
 	motors: Arc<[Motor]>,
 }
@@ -132,6 +133,7 @@ impl InputState {
 			v5_status_last: v5_status.clone(),
 			v5_status,
 			controller: InputChanges::NO_CHANGE,
+			replay_last: None,
 			motors,
 		}
 	}
@@ -157,15 +159,32 @@ impl InputState {
 		}
 	}
 
-	pub fn update_replay_input(&mut self, player: Option<&mut Player>) {
+	pub fn update_inputs(&mut self) {
+		self.controller.pressed = ControllerButtons::empty();
+		self.controller.released = ControllerButtons::empty();
+		self.controller.axes_changed = false;
+	}
+
+	pub fn overwrite_replay_input(&mut self, player: &mut Option<Player>) {
 		let player = match player {
-			Some(player) if player.is_playing() => player,
+			Some(p) => {
+				if p.is_playing() {
+					p
+				} else {
+					*player = None;
+					self.replay_last = None;
+					return;
+				}
+			}
 			_ => return,
 		};
 
 		// Override the input with the player input
 		if let Some(event) = player.get_events().iter().next() {
+			self.replay_last = Some(event.1);
 			self.controller = event.1;
+		} else if let Some(last) = self.replay_last {
+			self.controller = last;
 		}
 	}
 }
@@ -179,14 +198,14 @@ pub struct Network(Arc<Mutex<(Option<NetworkInner>, RerunLogger)>>);
 
 impl Network {
 	pub fn disconnected() -> Self {
-		let rerun = RecordingStreamBuilder::new("lemon")
+		let rerun = /*RecordingStreamBuilder::new("lemon")
 			.connect_opts(
-				"192.168.222.179:9876".parse().unwrap(),
+				"192.168.65.86:9876".parse().unwrap(),
 				Some(Duration::from_millis(2_000)),
 			)
-			.unwrap(); /*RecordingStreamBuilder::new("lemon")
+			.unwrap(); */ RecordingStreamBuilder::new("lemon")
 		   .save("recording.rrd")
-		   .unwrap();*/
+		   .unwrap();
 		rerun::Logger::new(rerun.clone())
 			.with_path_prefix("logs")
 			.with_filter(rerun::default_log_filter())
@@ -307,7 +326,7 @@ impl InputChanges {
 			released,
 			held,
 			axes: current.controller_axes,
-			axes_changed: current.controller_axes == last.controller_axes,
+			axes_changed: current.controller_axes != last.controller_axes,
 		}
 	}
 
@@ -408,6 +427,11 @@ impl Motor {
 	#[inline]
 	pub fn set_reversed(&self, reverse: bool) {
 		self.0.reversed.store(reverse, Ordering::Release);
+	}
+
+	#[inline]
+	pub fn is_reversed(&self) -> bool {
+		self.0.reversed.load(Ordering::Acquire)
 	}
 
 	#[inline]

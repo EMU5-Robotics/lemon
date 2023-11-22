@@ -47,10 +47,6 @@ impl Recorder {
 		Self::Off
 	}
 
-	pub fn is_on(&self) -> bool {
-		!matches!(self, Recorder::Off)
-	}
-
 	pub fn toggle(&mut self) -> Result<(), ReplayError> {
 		match self {
 			Self::Off => {
@@ -105,9 +101,9 @@ impl Recorder {
 	}
 
 	fn write_events(events: &[(u32, InputChanges)]) -> Result<(), ReplayError> {
-		let filename = Local::now().format("%Y-%m-%d_%H:%M:%S.replay").to_string();
+		// let filename = Local::now().format("%Y-%m-%d_%H:%M:%S.replay").to_string();
 
-		let mut file = std::fs::File::create(filename)?;
+		let mut file = std::fs::File::create("test.replay")?;
 
 		for (diff, changes) in events {
 			write!(
@@ -151,10 +147,13 @@ impl Player {
 
 		let mut events = Vec::new();
 		let mut held = ControllerButtons::empty();
+		let mut axes = [0; 4];
 
 		let mut line = 1;
 		loop {
 			let mut changes = InputChanges::NO_CHANGE;
+			changes.axes = axes;
+
 			let mut string = String::new();
 			if reader.read_line(&mut string).is_err() {
 				break;
@@ -225,6 +224,7 @@ impl Player {
 				};
 				changes.axes = [lx, ly, rx, ry];
 				changes.axes_changed = true;
+				// changes.axes_changed = true;
 			}
 			changes.held = held;
 			events.push((diff_time, changes));
