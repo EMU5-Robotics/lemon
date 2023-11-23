@@ -20,6 +20,32 @@ enum FollowState {
 
 struct Path {
 	segments: VecDeque<PathSegment>,
+    current_segment: Option<PathSegment>,
+}
+
+impl Path {
+    pub fn follow(&mut self, odom: &DriveOdom, turn_pid: &mut AnglePid, left_vel_pid: &mut VelocityPid, right_vel_pid: &mut VelocityPid) -> Option<(Power, Power)> {
+        // check if there is an active segment
+        if let Some(seg) = self.current_segment {
+            match seg.follow() {
+                Some(powers) => return Some(powers),
+                None => {}, // segment ended
+            }
+        }
+
+        // try get new active segment
+        self.current_segment = self.segments.pop_front();
+        
+        // new segment exists, start Following
+        // and then return follow from recursive call
+        if let Some(seg) = self.current_segment {
+            seg.start_follow();
+            return self.follow();
+        }
+
+        // new segment does not exist return None
+        None
+    }
 }
 
 enum PathSegment {
