@@ -1,15 +1,18 @@
-use std::collections::VecDeque;
-use std::f64::consts::PI;
-use std::f64::consts::TAU;
+use std::{
+	collections::VecDeque,
+	f64::consts::{PI, TAU},
+};
 
 use robot_algorithms::{
 	path_tracking::pure_pursuit,
 	prelude::{Pos2, Ray, Vec2},
 };
 
-use crate::odom::DriveOdom;
-use crate::pid::*;
-use crate::units::*;
+use crate::{
+	odom::{DriveOdom, Odometry},
+	pid::*,
+	units::*,
+};
 
 enum FollowState {
 	Following,

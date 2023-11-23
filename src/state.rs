@@ -99,10 +99,15 @@ impl GlobalState {
 			// Check that the motor is first connected
 			if devices.get_port(motor.port() as _).is_motor() {
 				// Get the state of the output
-				let power = motor.0.voltage.load(Ordering::Acquire);
+				let power = motor.0.power.load(Ordering::Acquire);
 				let reversed = motor.is_reversed();
+				let is_velocity = motor.0.is_velocity.load(Ordering::Acquire);
 				// Set the power
-				control.set_power(motor.port() as _, if reversed { -power } else { power })
+				control.set_power(
+					motor.port() as _,
+					if reversed { -power } else { power },
+					is_velocity,
+				);
 			}
 		}
 
@@ -123,7 +128,6 @@ pub struct InputState {
 	v5_status_last: (Instant, StatusPkt),
 	pub controller: InputChanges,
 	replay_last: Option<InputChanges>,
-	// gyro_rotation: f32
 	motors: Arc<[Motor]>,
 }
 
@@ -151,6 +155,10 @@ impl InputState {
 			let motor = &self.motors[port as usize];
 			motor.0.connected.store(true, Ordering::Release);
 			motor.0.current.store(state.current as _, Ordering::Release);
+			motor
+				.0
+				.velocity
+				.store(f32::to_bits(state.velocity), Ordering::Release);
 		}
 
 		for (port, position) in self.v5_status.1.encoders() {
@@ -198,21 +206,17 @@ pub struct Network(Arc<Mutex<(Option<NetworkInner>, RerunLogger)>>);
 
 impl Network {
 	pub fn disconnected() -> Self {
-		let rerun = /*RecordingStreamBuilder::new("lemon")
-			.connect_opts(
-				"192.168.65.86:9876".parse().unwrap(),
-				Some(Duration::from_millis(2_000)),
-			)
-			.unwrap(); */ RecordingStreamBuilder::new("lemon")
-		   .save("recording.rrd")
-		   .unwrap();
+		let rerun = RecordingStreamBuilder::new("lemon")
+			.save("recording.rrd")
+			.unwrap();
+		// RecordingStreamBuilder::new("lemon").connect_opts("192.168.65.86:9876".parse().unwrap(), Some(Duration::from_secs(2))).unwrap();
+		// RecordingStreamBuilder::new("lemon").connect().unwrap();
 		rerun::Logger::new(rerun.clone())
 			.with_path_prefix("logs")
 			.with_filter(rerun::default_log_filter())
 			.init()
 			.unwrap();
 		let logger = RerunLogger(Instant::now(), Some(rerun));
-
 		Network(Arc::new(Mutex::new((None, logger))))
 	}
 
@@ -384,10 +388,12 @@ struct MotorInner {
 	connected: AtomicBool,
 	reversed: AtomicBool,
 	// Sent
-	voltage: AtomicI16,
+	power: AtomicI16,
+	is_velocity: AtomicBool,
 	// Received
 	position: AtomicI32,
 	current: AtomicU32,
+	velocity: AtomicU32,
 }
 
 #[derive(Clone)]
@@ -399,9 +405,11 @@ impl Motor {
 			port: AtomicU8::new(port),
 			connected: AtomicBool::new(false),
 			reversed: AtomicBool::new(false),
-			voltage: AtomicI16::new(0),
+			power: AtomicI16::new(0),
+			is_velocity: AtomicBool::new(false),
 			position: AtomicI32::new(0),
 			current: AtomicU32::new(0),
+			velocity: AtomicU32::new(0),
 		};
 		Motor(Arc::new(motor))
 	}
@@ -409,9 +417,11 @@ impl Motor {
 	#[inline]
 	fn disconnect(&self) {
 		self.0.connected.store(false, Ordering::Release);
-		self.0.voltage.store(0, Ordering::Release);
+		self.0.power.store(0, Ordering::Release);
+		self.0.is_velocity.store(false, Ordering::Release);
 		self.0.position.store(0, Ordering::Release);
 		self.0.current.store(0, Ordering::Release);
+		self.0.velocity.store(0, Ordering::Release);
 	}
 
 	#[inline]
@@ -436,7 +446,14 @@ impl Motor {
 
 	#[inline]
 	pub fn voltage(&self, voltage: i16) {
-		self.0.voltage.store(voltage, Ordering::Release);
+		self.0.power.store(voltage, Ordering::Release);
+		self.0.is_velocity.store(false, Ordering::Release);
+	}
+
+	#[inline]
+	pub fn velocity(&self, velocity: i16) {
+		self.0.power.store(velocity, Ordering::Release);
+		self.0.is_velocity.store(true, Ordering::Release);
 	}
 
 	#[inline]
@@ -447,5 +464,10 @@ impl Motor {
 	#[inline]
 	pub fn current(&self) -> u32 {
 		self.0.current.load(Ordering::Acquire)
+	}
+
+	#[inline]
+	pub fn actual_velocity(&self) -> f32 {
+		f32::from_bits(self.0.velocity.load(Ordering::Acquire))
 	}
 }

@@ -1,14 +1,18 @@
-use std::{marker::PhantomData, time::Instant};
+use std::{
+	marker::PhantomData,
+	time::{Duration, Instant},
+};
 use uom::{si::*, ConstZero, ConversionFactor};
 
 pub struct Pid<T: Dimension + ?Sized, O: Dimension + ?Sized> {
-	kp: f64,
-	ki: f64,
-	kd: f64,
+	pub kp: f64,
+	pub ki: f64,
+	pub kd: f64,
 	target: Quantity<T, SI<f64>, f64>,
 	integral: f64,
 	prev_err: f64,
 	time: Instant,
+	last_output: Quantity<O, SI<f64>, f64>,
 	output: PhantomData<O>,
 }
 
@@ -22,13 +26,18 @@ impl<T: Dimension + ?Sized, O: Dimension + ?Sized> Pid<T, O> {
 			integral: ConstZero::ZERO,
 			prev_err: ConstZero::ZERO,
 			time: Instant::now(),
+			last_output: ConstZero::ZERO,
 			output: PhantomData,
 		}
 	}
+
 	pub fn step(&mut self, pv: Quantity<T, SI<f64>, f64>) -> Quantity<O, SI<f64>, f64> {
 		let pv = pv.value;
 
-		let dt = self.time.duration_since(self.time).as_secs_f64();
+		let dt = self.time.elapsed().as_secs_f64();
+		if dt > Duration::from_micros(6000).as_secs_f64() {
+			return self.last_output;
+		}
 		self.time = Instant::now();
 
 		let err = self.target.value - pv;
@@ -48,16 +57,20 @@ impl<T: Dimension + ?Sized, O: Dimension + ?Sized> Pid<T, O> {
 		}
 
 		let deriv_term = self.kd * (err - self.prev_err) / dt;
-		Quantity {
+		let output = Quantity {
 			dimension: PhantomData,
 			units: PhantomData,
 			value: prop_term + self.integral.value() + deriv_term,
-		}
+		};
+		self.last_output = output;
+		output
 	}
+
 	pub fn reset(&mut self) {
 		self.integral = 0.0;
 		self.time = Instant::now();
 	}
+
 	pub fn change_target(&mut self, target: Quantity<T, SI<f64>, f64>) {
 		self.target = target;
 	}

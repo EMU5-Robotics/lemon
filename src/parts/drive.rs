@@ -1,21 +1,25 @@
 use std::{iter, time::Instant};
 
-use crate::{state::Motor, units::*};
+use crate::{
+	state::{Motor, RerunLogger},
+	units::*,
+};
 
 pub struct Drive {
-	left: [Motor; 3],
+	pub left: [Motor; 3],
 	right: [Motor; 3],
 	turn_rate: f32,
 	last_encoder: (Length, Length),
 	// smooth between last 5 values
 	// encoders: [(Length, Length, Instant); 5],
 	last_update: Instant,
+	logger: RerunLogger,
 }
 
 const MAX_MILLIVOLT: f32 = 12_000.0;
 
 impl Drive {
-	pub fn new(left: [Motor; 3], right: [Motor; 3], turn_rate: f32) -> Self {
+	pub fn new(logger: RerunLogger, left: [Motor; 3], right: [Motor; 3], turn_rate: f32) -> Self {
 		if !(0.0..1.0).contains(&turn_rate) {
 			panic!("Invalid turn rate");
 		}
@@ -26,6 +30,7 @@ impl Drive {
 			turn_rate,
 			last_encoder: (meter!(0.0), meter!(0.0)),
 			last_update: Instant::now(),
+			logger,
 		}
 	}
 
@@ -37,6 +42,30 @@ impl Drive {
 			lmotor.voltage(lpower);
 			rmotor.voltage(rpower);
 		}
+	}
+
+	fn to_rpm(vel: Velocity) -> f64 {
+		let circumference = std::f64::consts::TAU * meter!(0.04195);
+		let time_scale = second!(60.0) / second!(1.0);
+		let angular_vel: AngularVelocity = (time_scale * vel / circumference).into();
+		angular_vel.value
+	}
+
+	pub fn set_velocity(&self, left: Velocity, right: Velocity) {
+		let lvel = Self::to_rpm(left);
+		let rvel = Self::to_rpm(right);
+
+		for (lmotor, rmotor) in iter::zip(&self.left, &self.right) {
+			lmotor.velocity((lvel as i16).clamp(-200, 200));
+			rmotor.velocity((rvel as i16).clamp(-200, 200));
+		}
+
+		self.logger.with(|rerun, start| {
+			use crate::logging::*;
+			rerun.set_time_seconds("", start.elapsed().as_secs_f64());
+			timeseries(rerun, "target", left.value);
+			timeseries(rerun, "target_rpm", lvel);
+		});
 	}
 
 	pub fn get_encoders(&mut self) -> Option<(Length, Length)> {
@@ -74,7 +103,7 @@ impl Drive {
 			false => 1.0,
 		};
 
-		const MULTIPLIER: f64 = 1.0 / 150000.0;
+		const MULTIPLIER: f64 = 1.0 / 340000.0;
 		Some((
 			meter!(self.left[0].position() as f64 * l_rev * MULTIPLIER),
 			meter!(self.right[0].position() as f64 * r_rev * MULTIPLIER),
