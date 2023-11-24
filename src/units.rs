@@ -15,6 +15,7 @@ macro_rules! unit {
 }
 
 unit!(degree, angle, Angle);
+unit!(degree_per_second, angular_velocity, AngularVelocity);
 unit!(kilogram_meter_per_second, momentum, Momentum);
 unit!(meter, length, Length);
 unit!(meter_per_second, velocity, Velocity);
@@ -28,6 +29,7 @@ unit!(watt, power, Power);
 unit!(watt_per_meter, linear_power_density, LinearPowerDensity);
 
 pub use degree::degree;
+pub use degree_per_second::degree_per_second;
 pub use meter::meter;
 pub use meter_per_second::meter_per_second;
 pub use millisecond::millisecond;

@@ -16,24 +16,13 @@ mod replay;
 mod state;
 mod units;
 
-/* Test Drive
-[
-	state.take_motor(10, true),
-	state.take_motor(2, true),
-	state.take_motor(1, false),
-],
-[
-	state.take_motor(20, false),
-	state.take_motor(12, false),
-	state.take_motor(11, true),
-],
-*/
-
 fn main() -> anyhow::Result<()> {
 	dotenvy::dotenv().ok();
 
 	let mut state = GlobalState::new()?;
 	let mut input = state.create_input_state();
+
+	setup_field_rerun(state.network.rerun_logger());
 
 	let logger = state.network.rerun_logger();
 	let mut odom = std::thread::spawn(move || create_odometry(logger))
@@ -45,7 +34,7 @@ fn main() -> anyhow::Result<()> {
 		[
 			state.take_motor(4, false),
 			state.take_motor(5, false),
-			state.take_motor(13, false),
+			state.take_motor(11, false),
 		],
 		[
 			state.take_motor(1, true),
@@ -54,14 +43,9 @@ fn main() -> anyhow::Result<()> {
 		],
 		0.8,
 	);
-	let flipper = state.take_motor(11, true);
+	let flipper = state.take_motor(14, true);
 
 	// let target = meter_per_second!(0.1);
-	// let mut kp = 1.38;
-	// let mut ki = 0.0;
-	// let mut kd = 0.0;
-	// let mut lv_pid = VelocityPid::new(kp, ki, kd, target);
-	//let _rv_pid = VelocityPid::new(0.3, 0.3, 0.3, meter_per_second!(1.0));
 	//let _turning_pid = AnglePid::new(0.3, 0.3, 0.3, radian!(1.0));
 
 	// let logger = state.network.rerun_logger();
@@ -100,6 +84,34 @@ fn main() -> anyhow::Result<()> {
 	}
 }
 
+fn setup_field_rerun(logger: RerunLogger) {
+	logger.with(|rec, _| {
+		rec.log_timeless("/", &rerun::ViewCoordinates::RIGHT_HAND_Z_UP)
+			.unwrap();
+		rec.log_timeless(
+			"xyz",
+			&rerun::Arrows3D::from_vectors([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+				.with_colors([[255, 0, 0], [0, 255, 0], [0, 0, 255]]),
+		)
+		.unwrap();
+
+		let robot_center = [-1.0, -1.5, 0.0016 + 0.095];
+
+		let robot =
+			rerun::Boxes3D::from_centers_and_half_sizes([robot_center], [(0.175, 0.195, 0.095)])
+				.with_rotations([rerun::RotationAxisAngle::new(
+					(0.0, 0.0, 1.0),
+					rerun::Angle::Degrees(0.0),
+				)])
+				.with_radii([0.005])
+				.with_colors([rerun::Color::from_rgb(255, 0, 0)])
+				.with_labels(["robot"]);
+
+		rec.log_timeless("robot", &robot).unwrap();
+		rec.flush_blocking();
+	});
+}
+
 fn create_odometry(logger: RerunLogger) -> anyhow::Result<odom::DriveImuOdom> {
 	use bno055::{BNO055OperationMode, Bno055};
 	use rppal::{hal::Delay, i2c::I2c};
@@ -108,7 +120,7 @@ fn create_odometry(logger: RerunLogger) -> anyhow::Result<odom::DriveImuOdom> {
 	let mut delay = Delay::new();
 	let mut imu = Bno055::new(i2c).with_alternative_address();
 	imu.init(&mut delay)?;
-	imu.set_mode(BNO055OperationMode::NDOF, &mut delay)?;
+	imu.set_mode(BNO055OperationMode::GYRO_ONLY, &mut delay)?;
 	imu.set_external_crystal(true, &mut delay)?;
 
 	Ok(odom::DriveImuOdom::new(logger, imu))

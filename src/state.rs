@@ -11,7 +11,7 @@ use client::{
 	network::{listen_for_server, Client, ClientConfiguration},
 };
 use protocol::{device::ControllerButtons, ControlPkt, StatusPkt};
-use rerun::{RecordingStream, RecordingStreamBuilder};
+use rerun::{RecordingStream, RecordingStreamBuilder, StoreId, StoreKind};
 
 use crate::replay::{Player, Recorder};
 
@@ -249,6 +249,10 @@ impl Network {
 						common::protocol::ManageMessage::AnnounceRerunServer(addr) => {
 							let rerun =
 								RecordingStreamBuilder::new(net.network_client.name.clone())
+									.store_id(StoreId::from_string(
+										StoreKind::Recording,
+										String::from("bot"),
+									))
 									.connect_opts(addr, Some(Duration::from_millis(2_000)))
 									.unwrap_or(
 										RecordingStreamBuilder::new("lemon (file fallback)")

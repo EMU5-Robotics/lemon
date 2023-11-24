@@ -1,12 +1,13 @@
 use std::{iter, time::Instant};
 
 use crate::{
+	logging::*,
 	state::{Motor, RerunLogger},
 	units::*,
 };
 
 pub struct Drive {
-	pub left: [Motor; 3],
+	left: [Motor; 3],
 	right: [Motor; 3],
 	turn_rate: f32,
 	last_encoder: (Length, Length),
@@ -44,20 +45,13 @@ impl Drive {
 		}
 	}
 
-	fn to_rpm(vel: Velocity) -> f64 {
-		let circumference = std::f64::consts::TAU * meter!(0.04195);
-		let time_scale = second!(60.0) / second!(1.0);
-		let angular_vel: AngularVelocity = (time_scale * vel / circumference).into();
-		angular_vel.value
-	}
-
 	pub fn set_velocity(&self, left: Velocity, right: Velocity) {
-		let lvel = Self::to_rpm(left);
-		let rvel = Self::to_rpm(right);
+		let lvel = to_rpm(left).value;
+		let rvel = to_rpm(right).value;
 
 		for (lmotor, rmotor) in iter::zip(&self.left, &self.right) {
-			lmotor.velocity((lvel as i16).clamp(-200, 200));
-			rmotor.velocity((rvel as i16).clamp(-200, 200));
+			lmotor.velocity((lvel as i16).clamp(-600, 600));
+			rmotor.velocity((rvel as i16).clamp(-600, 600));
 		}
 
 		self.logger.with(|rerun, start| {
@@ -103,10 +97,41 @@ impl Drive {
 			false => 1.0,
 		};
 
-		const MULTIPLIER: f64 = 1.0 / 340000.0;
+		const MULTIPLIER: f64 = 1.0 / 115000.0;
 		Some((
 			meter!(self.left[0].position() as f64 * l_rev * MULTIPLIER),
 			meter!(self.right[0].position() as f64 * r_rev * MULTIPLIER),
 		))
 	}
+
+	pub fn get_actual_velocity(&self) -> Option<(Velocity, Velocity)> {
+		// Check the motors are connected for us to read the velocity values
+		if !self.left[0].is_connected() || !self.right[0].is_connected() {
+			return None;
+		}
+
+		let l_rev = match self.left[0].is_reversed() {
+			true => -1.0,
+			false => 1.0,
+		};
+		let r_rev = match self.right[0].is_reversed() {
+			true => -1.0,
+			false => 1.0,
+		};
+
+		Some((
+			l_rev * to_ms(revolution_per_minute!(self.left[0].actual_velocity() as _)),
+			r_rev * to_ms(revolution_per_minute!(self.right[0].actual_velocity() as _)),
+		))
+	}
+}
+
+fn to_rpm(vel: Velocity) -> AngularVelocity {
+	let circumference = std::f64::consts::TAU * meter!(0.04195);
+	let time_scale = second!(60.0) / second!(1.0);
+	(time_scale * vel / circumference).into()
+}
+
+fn to_ms(rpm: AngularVelocity) -> Velocity {
+	rpm * std::f64::consts::TAU * meter!(0.04195) / 60.0
 }
