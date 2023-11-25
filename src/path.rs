@@ -8,6 +8,7 @@ use robot_algorithms::prelude::{Pos2, Vec2};
 use crate::{
 	odom::{DriveImuOdom, Odometry},
 	pid::*,
+	state::Motor,
 	units::*,
 };
 
@@ -21,12 +22,12 @@ enum FollowState {
 }
 
 pub struct Path {
-	segments: VecDeque<PathSegment>,
-	current_segment: Option<PathSegment>,
+	segments: VecDeque<(PathSegment, Timer)>,
+	current_segment: Option<(PathSegment, Timer)>,
 }
 
 impl Path {
-	pub fn new(segments: Vec<PathSegment>) -> Self {
+	pub fn new(segments: Vec<(PathSegment, Timer)>) -> Self {
 		Self {
 			segments: segments.into(),
 			current_segment: None,
@@ -38,10 +39,15 @@ impl Path {
 		turn_pid: &mut AnglePid,
 	) -> Option<(Velocity, Velocity)> {
 		// check if there is an active segment
-		if let Some(seg) = &self.current_segment {
-			match seg.follow(odom, turn_pid) {
-				Some(vels) => return Some(vels),
-				None => {} // segment ended
+		if let Some((ref mut seg, timer)) = &mut self.current_segment {
+			// exit if timer is up
+			if timer.done() {
+				seg.end_follow();
+			} else {
+				match seg.follow(odom, turn_pid) {
+					Some(vels) => return Some(vels),
+					None => {} // segment ended
+				}
 			}
 		}
 
@@ -50,8 +56,9 @@ impl Path {
 
 		// new segment exists, start Following
 		// and then return follow from recursive call
-		if let Some(ref mut seg) = &mut self.current_segment {
+		if let Some((ref mut seg, ref mut timer)) = &mut self.current_segment {
 			seg.start_follow(odom, turn_pid);
+			timer.start();
 			return self.follow(odom, turn_pid);
 		}
 
@@ -70,55 +77,89 @@ pub enum PathSegment {
 		velocities: Vec<Velocity>,
 		reversed: bool,
 	},
+	PowerMotors {
+		voltages: Vec<i16>,
+		motors: Vec<Motor>,
+	},
+	RelativePath {
+		points: Vec<Vec2>,
+		velocities: Vec<Velocity>,
+		offset: (Vec2, Angle),
+		reversed: bool,
+	},
 }
 
 impl PathSegment {
 	pub fn start_follow(&mut self, odom: &DriveImuOdom, turn_pid: &mut AnglePid) {
 		turn_pid.reset();
 
-		// transform target into local space and set offset
-		if let Self::TurnTo {
-			ref mut target,
-			ref mut offset,
-		} = self
-		{
-			// transform angle into closest angle in global space
-			let map_to_closest_global = |target: Angle| -> Angle {
-				let angle = odom.angle().value;
+		match self {
+			// transform target into local space and set offset
+			Self::TurnTo {
+				ref mut target,
+				ref mut offset,
+			} => {
+				// transform angle into closest angle in global space
+				let map_to_closest_global = |target: Angle| -> Angle {
+					let angle = odom.angle().value;
 
-				// convert angle to [-PI, PI]
-				let target = {
-					// map angle to [-TAU, TAU]
-					let mut target = target.value % TAU;
-					// map angle to [0, TAU];
-					target += TAU;
-					target %= TAU;
-					// map angle to [-PI, PI]
-					if target > PI {
-						target -= TAU;
-					}
-					target
+					// convert angle to [-PI, PI]
+					let target = {
+						// map angle to [-TAU, TAU]
+						let mut target = target.value % TAU;
+						// map angle to [0, TAU];
+						target += TAU;
+						target %= TAU;
+						// map angle to [-PI, PI]
+						if target > PI {
+							target -= TAU;
+						}
+						target
+					};
+
+					let num_angles = (angle / TAU).floor();
+					let res = num_angles * TAU + target;
+					let mapped_angle = if (res - angle).abs() > PI {
+						(angle / TAU).ceil() * TAU + target
+					} else {
+						res
+					};
+
+					radian!(mapped_angle)
 				};
 
-				let num_angles = (angle / TAU).floor();
-				let res = num_angles * TAU + target;
-				let mapped_angle = if (res - angle).abs() > PI {
-					(angle / TAU).ceil() * TAU + target
+				// set target angle as relative angle to said transformed angle
+				// and store offset
+				*offset = -odom.angle();
+				*target = map_to_closest_global(*target) + *offset;
+				turn_pid.change_target(*target);
+			}
+			Self::PowerMotors {
+				voltages,
+				ref mut motors,
+			} => {
+				for (m, &v) in motors.iter_mut().zip(voltages.iter()) {
+					m.voltage(v);
+				}
+			}
+			Self::RelativePath {
+				ref mut offset,
+				reversed,
+				..
+			} => {
+				let pos = odom.pos();
+				offset.0 = Vec2::new(-pos.0.value, -pos.1.value);
+				offset.1 = if *reversed {
+					degree!(180.0)
 				} else {
-					res
-				};
-
-				radian!(mapped_angle)
-			};
-
-			// set target angle as relative angle to said transformed angle
-			// and store offset
-			*offset = -odom.angle();
-			*target = map_to_closest_global(*target) + *offset;
+					ConstZero::ZERO
+				} - odom.angle();
+			}
+			_ => {}
 		}
 	}
 	pub fn follow(
-		&self,
+		&mut self,
 		odom: &DriveImuOdom,
 		turn_pid: &mut AnglePid,
 	) -> Option<(Velocity, Velocity)> {
@@ -167,12 +208,69 @@ impl PathSegment {
 
 				// exit cond dictated by motion_profile.rs
 				if left_vel.value == 0.0 && right_vel.value == 0.0 {
-					println!("exited");
 					return None;
 				}
 
 				Some((left_vel, right_vel))
 			}
+			Self::RelativePath {
+				points,
+				velocities,
+				offset,
+				reversed, // todo: reversing not handled yet
+			} => {
+				let current_pos = odom.pos();
+				let current_pos = Pos2::new(current_pos.0.value, current_pos.1.value) + offset.0; // meters
+
+				// calculate target velocity from motion profile
+				let vel =
+					crate::motion_profile::get_profile_velocity((velocities, points), current_pos);
+
+				let mut left_vel = vel;
+				let mut right_vel = vel;
+
+				// scale velocities to stay within velocity limits
+				let max_vel: Velocity = meter_per_second!(1.0);
+				let scale = max_vel / left_vel.abs().max(right_vel.abs());
+				if scale.value < 1.0 && !scale.value.is_nan() {
+					left_vel = left_vel * scale;
+					right_vel = right_vel * scale;
+				}
+
+				// exit cond dictated by motion_profile.rs
+				if left_vel.value == 0.0 && right_vel.value == 0.0 {
+					println!("exited");
+					return None;
+				}
+				//println!("b{left_vel:?}");
+				//println!("{:?}", reversed);
+				if *reversed {
+					left_vel = -left_vel;
+					right_vel = -right_vel;
+				}
+				//println!("a{left_vel:?}");
+
+				Some((left_vel, right_vel))
+			}
+			Self::PowerMotors { voltages, motors } => {
+				for (m, &v) in motors.iter_mut().zip(voltages.iter()) {
+					m.voltage(v);
+				}
+				Some((ConstZero::ZERO, ConstZero::ZERO))
+			} //_ => Some((ConstZero::ZERO, ConstZero::ZERO)),
+		}
+	}
+	pub fn end_follow(&mut self) {
+		match self {
+			Self::PowerMotors {
+				voltages: _,
+				motors,
+			} => {
+				for m in motors {
+					m.voltage(0);
+				}
+			}
+			_ => {}
 		}
 	}
 	pub fn rotate_abs(angle: Angle) -> Self {
@@ -181,14 +279,14 @@ impl PathSegment {
 			offset: ConstZero::ZERO,
 		}
 	}
-	pub fn line(start: Vec2, end: Vec2) -> Self {
+	pub fn line(start: Vec2, end: Vec2, reversed: bool) -> Self {
 		const NUM_POINTS: usize = 64;
 
 		let mut points = Vec::new();
 		let mut velocities = Vec::new();
 
 		let max_vel = meter_per_second!(2.6);
-		let till_max = second!(0.8); // time taken to accelerate to max speed
+		let till_max = second!(0.1); // time taken to accelerate to max speed
 		let max_accel = max_vel / till_max;
 
 		let distance = meter!((end - start).magnitude());
@@ -230,7 +328,7 @@ impl PathSegment {
 			return Self::Path {
 				points,
 				velocities,
-				reversed: false,
+				reversed,
 			};
 		}
 
@@ -257,7 +355,51 @@ impl PathSegment {
 		Self::Path {
 			points,
 			velocities,
-			reversed: false,
+			reversed,
 		}
+	}
+	pub fn into_relative(v: Self) -> Self {
+		if let Self::Path {
+			points,
+			velocities,
+			reversed,
+		} = v
+		{
+			Self::RelativePath {
+				points,
+				velocities,
+				reversed,
+				offset: Default::default(),
+			}
+		} else {
+			unreachable!()
+		}
+	}
+}
+use std::time::{Duration, Instant};
+
+impl Default for Timer {
+	fn default() -> Self {
+		Self::new(Duration::from_secs(30))
+	}
+}
+
+pub struct Timer {
+	start: Instant,
+	duration: Duration,
+}
+
+impl Timer {
+	pub fn new(dur: Duration) -> Self {
+		Self {
+			start: Instant::now(),
+			duration: dur,
+		}
+	}
+	pub fn start(&mut self) {
+		self.start = Instant::now();
+	}
+	pub fn done(&self) -> bool {
+		self.start.elapsed() > self.duration
 	}
 }

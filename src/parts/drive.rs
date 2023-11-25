@@ -7,8 +7,8 @@ use crate::{
 };
 
 pub struct Drive {
-	left: [Motor; 3],
-	right: [Motor; 3],
+	pub left: [Motor; 3],
+	pub right: [Motor; 3],
 	turn_rate: f32,
 	last_encoder: (Length, Length),
 	// smooth between last 5 values

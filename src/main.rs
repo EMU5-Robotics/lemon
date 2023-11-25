@@ -10,6 +10,8 @@ use crate::{
 	units::*,
 };
 
+use std::time::Duration;
+
 use robot_algorithms::prelude::Vec2;
 
 use uom::ConstZero;
@@ -26,7 +28,6 @@ mod units;
 
 fn main() -> anyhow::Result<()> {
 	dotenvy::dotenv().ok();
-
 	let mut state = GlobalState::new()?;
 	let mut input = state.create_input_state();
 
@@ -51,15 +52,54 @@ fn main() -> anyhow::Result<()> {
 		],
 		0.8,
 	);
-	let flipper = state.take_motor(14, true);
+	let flipper = state.take_motor(15, true);
+
+	let mut tpid = AnglePid::new(3.5, 1.0, 0.0, degree!(0.0)); // this will do for now
 
 	let mut path = Path::new(vec![
-		PathSegment::line(Vec2::new(0.0, 0.0), Vec2::new(0.0, 1.0)),
-		PathSegment::rotate_abs(degree!(90.0)),
+		(
+			PathSegment::line(Vec2::new(0.0, 0.0), Vec2::new(0.0, 1.18), false),
+			Default::default(),
+		),
+		(PathSegment::rotate_abs(degree!(45.0)), Default::default()),
+		(
+			PathSegment::line(Vec2::new(0.0, 1.18), Vec2::new(0.70, 1.88), false),
+			Timer::new(Duration::from_secs(3)),
+		),
+		(
+			PathSegment::PowerMotors {
+				voltages: vec![-12000, 12000, 12000, 12000, -12000, -12000, -12000],
+				motors: vec![
+					flipper.clone(),
+					drive.left[0].clone(),
+					drive.left[1].clone(),
+					drive.left[2].clone(),
+					drive.right[0].clone(),
+					drive.right[1].clone(),
+					drive.right[2].clone(),
+				],
+			},
+			Timer::new(Duration::from_secs(2)),
+		),
+		(
+			PathSegment::PowerMotors {
+				voltages: vec![12000],
+				motors: vec![flipper.clone()],
+			},
+			Timer::new(Duration::from_secs(2)),
+		),
+		(
+			PathSegment::into_relative(PathSegment::line(
+				Vec2::new(0.0, 0.0),
+				Vec2::new(0.0, -0.10),
+				true,
+			)),
+			Timer::new(Duration::from_secs(1)),
+		),
+		//(PathSegment::rotate_abs(degree!(45.0)), Default::default()),
 	]);
 
 	// let target = meter_per_second!(0.1);
-	let mut tpid = AnglePid::new(3.0, 0.0, 0.0, degree!(90.0)); // this will do for now
 	let logger = state.network.rerun_logger();
 
 	// let logger = state.network.rerun_logger();
