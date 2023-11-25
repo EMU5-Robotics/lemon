@@ -1,3 +1,4 @@
+use crate::units::*;
 use robot_algorithms::prelude::*;
 use uom::si::f64::Velocity;
 
@@ -16,6 +17,13 @@ pub fn get_profile_velocity(profile: (&[Velocity], &[Vec2]), pos: Pos2) -> Veloc
 		.reduce(|a, b| if dist(a.1) < dist(b.1) { a } else { b })
 		.map(|(i, _)| i)
 		.unwrap();
+
+	// zero vel if past end
+	if (points[len - 1] - points[len - 2]).magnitude_squared() < dist(&points[len - 2])
+		&& min_i == len - 1
+	{
+		return meter_per_second!(0.0);
+	}
 
 	// interpolate between adjacent points
 	let indicies = if min_i == 0 {

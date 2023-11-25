@@ -53,13 +53,14 @@ fn main() -> anyhow::Result<()> {
 	);
 	let flipper = state.take_motor(14, true);
 
+	let mut path = Path::new(vec![
+		PathSegment::line(Vec2::new(0.0, 0.0), Vec2::new(0.0, 1.0)),
+		PathSegment::rotate_abs(degree!(90.0)),
+	]);
+
 	// let target = meter_per_second!(0.1);
 	let mut tpid = AnglePid::new(3.0, 0.0, 0.0, degree!(90.0)); // this will do for now
 	let logger = state.network.rerun_logger();
-	let mut path = Path::new(vec![PathSegment::line(
-		Vec2::new(0.0, 0.0),
-		Vec2::new(1.0, 0.0),
-	)]);
 
 	// let logger = state.network.rerun_logger();
 	loop {

@@ -3,16 +3,15 @@ use std::{
 	f64::consts::{PI, TAU},
 };
 
-use robot_algorithms::{
-	path_tracking::pure_pursuit,
-	prelude::{Pos2, Ray, Vec2},
-};
+use robot_algorithms::prelude::{Pos2, Vec2};
 
 use crate::{
 	odom::{DriveImuOdom, Odometry},
 	pid::*,
 	units::*,
 };
+
+use uom::ConstZero;
 
 enum FollowState {
 	Following,
@@ -41,7 +40,7 @@ impl Path {
 		// check if there is an active segment
 		if let Some(seg) = &self.current_segment {
 			match seg.follow(odom, turn_pid) {
-				Some(powers) => return Some(powers),
+				Some(vels) => return Some(vels),
 				None => {} // segment ended
 			}
 		}
@@ -124,7 +123,7 @@ impl PathSegment {
 		turn_pid: &mut AnglePid,
 	) -> Option<(Velocity, Velocity)> {
 		match self {
-			Self::TurnTo { target: _, offset } => {
+			Self::TurnTo { target, offset } => {
 				let angle = odom.angle();
 				let angular_vel = turn_pid.step(angle + *offset);
 
@@ -134,8 +133,12 @@ impl PathSegment {
 				// scale velocity to stay within velocity limits
 				let max_vel: Velocity = meter_per_second!(2.6);
 				let scale = max_vel / side_vel.abs();
-				if scale.value < 1.0 {
+				if scale.value < 1.0 && !scale.value.is_nan() {
 					side_vel = side_vel * scale;
+				}
+
+				if (angle + *offset - *target).abs() < degree!(5.0) && side_vel.abs().value < 0.01 {
+					return None;
 				}
 				Some((-side_vel, side_vel))
 			}
@@ -151,43 +154,35 @@ impl PathSegment {
 				let vel =
 					crate::motion_profile::get_profile_velocity((velocities, points), current_pos);
 
-				// check if near end of path (disable angular velocity PID)
-				let mut curve_radius = meter!(0.0);
-				if true {
-					let pos = Ray::new(current_pos, odom.angle().value); // radians
-					let lookahead_sq: Length = meter!(0.01);
-
-					// calculate target curvature from pure pursuit
-					curve_radius =
-						match pure_pursuit::get_curvature(points, &pos, lookahead_sq.value) {
-							Ok(curve) => meter!(1.0 / curve),
-							Err(e) => {
-								log::error!("pure pursuit failed with: {e:?}");
-								return None;
-							}
-						};
-				}
-
-				// convert velocity and curve radius into side velocities
-				let side_spacing: Length = meter!(0.14); // 28cm between sides?
-				let ratio = (curve_radius - side_spacing) / (curve_radius + side_spacing);
-				let mut left_vel = ratio * vel;
-				let mut right_vel = vel / ratio;
+				let mut left_vel = vel;
+				let mut right_vel = vel;
 
 				// scale velocities to stay within velocity limits
 				let max_vel: Velocity = meter_per_second!(1.0);
 				let scale = max_vel / left_vel.abs().max(right_vel.abs());
-				if scale.value < 1.0 {
+				if scale.value < 1.0 && !scale.value.is_nan() {
 					left_vel = left_vel * scale;
 					right_vel = right_vel * scale;
+				}
+
+				// exit cond dictated by motion_profile.rs
+				if left_vel.value == 0.0 && right_vel.value == 0.0 {
+					println!("exited");
+					return None;
 				}
 
 				Some((left_vel, right_vel))
 			}
 		}
 	}
+	pub fn rotate_abs(angle: Angle) -> Self {
+		Self::TurnTo {
+			target: angle,
+			offset: ConstZero::ZERO,
+		}
+	}
 	pub fn line(start: Vec2, end: Vec2) -> Self {
-		const NUM_POINTS: usize = 16;
+		const NUM_POINTS: usize = 64;
 
 		let mut points = Vec::new();
 		let mut velocities = Vec::new();
@@ -215,14 +210,20 @@ impl PathSegment {
 		if half_t < till_max {
 			// create points and velocities
 			for i in 0..NUM_POINTS {
-				let cur_dist = (i as f64 / (NUM_POINTS - 1) as f64) * distance;
+				let mut ratio = i as f64 / (NUM_POINTS - 1) as f64;
+				let real_ratio = ratio;
+				if ratio > 0.5 {
+					ratio = 1.0 - ratio;
+				}
+
+				let cur_dist = ratio * distance;
 				let mut tv = (2.0 * cur_dist / max_accel).sqrt();
-				if tv > half_t {
-					tv = 2.0 * half_t - tv;
+				if i < NUM_POINTS / 2 {
+					tv += (half_t * 0.05).min(half_t);
 				}
 
 				let v = tv * max_accel;
-				let pos = start + (cur_dist / distance).value * (end - start);
+				let pos = start + real_ratio * (end - start);
 				velocities.push(v);
 				points.push(pos);
 			}
@@ -234,32 +235,21 @@ impl PathSegment {
 		}
 
 		// use trapezoid profile
-		// distance = h(a+b)/2
-		// a = a (time at max_vel)
-		// b = a + 2.0 * till_max (time at max_vel + acceleration time)
-		// h = max_vel
-		// distance = max_vel(a + a + 2.0 * till_max)/2
-		// distance = max_vel(a+till_max)
-		// distance / max_vel = a + till_max
-		// distance / max_vel - till_max = a
-		let t_at_max = distance / max_vel - till_max;
-		let t_total = t_at_max + 2.0 * till_max;
 		for i in 0..NUM_POINTS {
-			let cur_dist = (i as f64 / (NUM_POINTS - 1) as f64) * distance;
+			let mut ratio = i as f64 / (NUM_POINTS - 1) as f64;
+			let real_ratio = ratio;
+			if ratio > 0.5 {
+				ratio = 1.0 - ratio;
+			}
+			let cur_dist = ratio * distance;
 			let mut tv = (2.0 * cur_dist / max_accel).sqrt();
 
-			if tv < till_max { // accel
-				 // no change
-			} else if tv > till_max {
-				// constant speed
-				tv = till_max;
-			} else {
-				// decel
-				tv = t_total - tv;
+			if tv < till_max && i < NUM_POINTS / 2 {
+				tv += (0.05 * till_max).min(till_max);
 			}
 
 			let v = tv * max_accel;
-			let pos = start + (cur_dist / distance).value * (end - start);
+			let pos = start + real_ratio * (end - start);
 			velocities.push(v);
 			points.push(pos);
 		}
