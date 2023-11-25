@@ -21,22 +21,26 @@ enum FollowState {
 	SegmentInit,
 }
 
-struct Path {
+pub struct Path {
 	segments: VecDeque<PathSegment>,
 	current_segment: Option<PathSegment>,
 }
 
 impl Path {
+	pub fn new(segments: Vec<PathSegment>) -> Self {
+		Self {
+			segments: segments.into(),
+			current_segment: None,
+		}
+	}
 	pub fn follow(
 		&mut self,
 		odom: &DriveImuOdom,
 		turn_pid: &mut AnglePid,
-		left_vel_pid: &mut VelocityPid,
-		right_vel_pid: &mut VelocityPid,
-	) -> Option<(Power, Power)> {
+	) -> Option<(Velocity, Velocity)> {
 		// check if there is an active segment
 		if let Some(seg) = &self.current_segment {
-			match seg.follow(odom, turn_pid, left_vel_pid, right_vel_pid) {
+			match seg.follow(odom, turn_pid) {
 				Some(powers) => return Some(powers),
 				None => {} // segment ended
 			}
@@ -48,8 +52,8 @@ impl Path {
 		// new segment exists, start Following
 		// and then return follow from recursive call
 		if let Some(ref mut seg) = &mut self.current_segment {
-			seg.start_follow(odom, turn_pid, left_vel_pid, right_vel_pid);
-			return self.follow(odom, turn_pid, left_vel_pid, right_vel_pid);
+			seg.start_follow(odom, turn_pid);
+			return self.follow(odom, turn_pid);
 		}
 
 		// new segment does not exist return None
@@ -57,7 +61,7 @@ impl Path {
 	}
 }
 
-enum PathSegment {
+pub enum PathSegment {
 	TurnTo {
 		target: Angle,
 		offset: Angle,
@@ -70,16 +74,8 @@ enum PathSegment {
 }
 
 impl PathSegment {
-	pub fn start_follow(
-		&mut self,
-		odom: &DriveImuOdom,
-		turn_pid: &mut AnglePid,
-		left_vel_pid: &mut VelocityPid,
-		right_vel_pid: &mut VelocityPid,
-	) {
+	pub fn start_follow(&mut self, odom: &DriveImuOdom, turn_pid: &mut AnglePid) {
 		turn_pid.reset();
-		left_vel_pid.reset();
-		right_vel_pid.reset();
 
 		// transform target into local space and set offset
 		if let Self::TurnTo {
@@ -126,36 +122,22 @@ impl PathSegment {
 		&self,
 		odom: &DriveImuOdom,
 		turn_pid: &mut AnglePid,
-		left_vel_pid: &mut VelocityPid,
-		right_vel_pid: &mut VelocityPid,
-	) -> Option<(Power, Power)> {
+	) -> Option<(Velocity, Velocity)> {
 		match self {
 			Self::TurnTo { target: _, offset } => {
-				// todo: change output from ratio to side velocity or angular velocity
-				let angular_velocity = turn_pid.step(odom.angle() + *offset);
+				let angle = odom.angle();
+				let angular_vel = turn_pid.step(angle + *offset);
 
-				let side_spacing: Length = meter!(0.1); // 20cm between sides?
-				let mut side_vel = angular_velocity * side_spacing;
+				let side_spacing: Length = meter!(0.14); // 28cm between sides?
+				let mut side_vel = angular_vel * side_spacing;
 
 				// scale velocity to stay within velocity limits
-				let max_vel: Velocity = meter_per_second!(1.0);
-				let scale = max_vel / side_vel;
+				let max_vel: Velocity = meter_per_second!(2.6);
+				let scale = max_vel / side_vel.abs();
 				if scale.value < 1.0 {
 					side_vel = side_vel * scale;
 				}
-
-				// set PID targets
-				left_vel_pid.change_target(-side_vel);
-				right_vel_pid.change_target(side_vel);
-
-				let cur_side_vel = odom.side_vel();
-
-				// todo: double check coordinate system
-				// calculate motor powers with PIDs
-				let left_power = left_vel_pid.step(cur_side_vel.0);
-				let right_power = right_vel_pid.step(cur_side_vel.1);
-
-				Some((left_power, right_power))
+				Some((-side_vel, side_vel))
 			}
 			Self::Path {
 				points,
@@ -187,31 +169,105 @@ impl PathSegment {
 				}
 
 				// convert velocity and curve radius into side velocities
-				let side_spacing: Length = meter!(0.1); // 20cm between sides?
+				let side_spacing: Length = meter!(0.14); // 28cm between sides?
 				let ratio = (curve_radius - side_spacing) / (curve_radius + side_spacing);
 				let mut left_vel = ratio * vel;
 				let mut right_vel = vel / ratio;
 
 				// scale velocities to stay within velocity limits
 				let max_vel: Velocity = meter_per_second!(1.0);
-				let scale = max_vel / left_vel.max(right_vel);
+				let scale = max_vel / left_vel.abs().max(right_vel.abs());
 				if scale.value < 1.0 {
 					left_vel = left_vel * scale;
 					right_vel = right_vel * scale;
 				}
 
-				// set PID targets
-				left_vel_pid.change_target(left_vel);
-				right_vel_pid.change_target(right_vel);
-
-				let side_vel = odom.side_vel();
-
-				// calculate motor powers with PIDs
-				let left_power = left_vel_pid.step(side_vel.0);
-				let right_power = right_vel_pid.step(side_vel.1);
-
-				Some((left_power, right_power))
+				Some((left_vel, right_vel))
 			}
+		}
+	}
+	pub fn line(start: Vec2, end: Vec2) -> Self {
+		const NUM_POINTS: usize = 16;
+
+		let mut points = Vec::new();
+		let mut velocities = Vec::new();
+
+		let max_vel = meter_per_second!(2.6);
+		let till_max = second!(0.8); // time taken to accelerate to max speed
+		let max_accel = max_vel / till_max;
+
+		let distance = meter!((end - start).magnitude());
+
+		// figure out time for triangle profile
+		// half_area_tri = (1/2) * v * half_t (note t is half the time)
+		// distance / 2 = (1/2) * max_accel * half_t * half_t
+		// distance  = max_accel * half_t^2
+		// half_t = sqrt(distance / max_accel)
+		let half_t = (distance / max_accel).sqrt();
+
+		// not enough time to reach max_accel
+		// use triangle profile
+		// for constant acceleration:
+		// distance = t * v * (1/2)
+		// v = t * max_accel
+		// distance = (1/2) * t^2 * max_accel
+		// t = sqrt(2 * distance / max_accel)
+		if half_t < till_max {
+			// create points and velocities
+			for i in 0..NUM_POINTS {
+				let cur_dist = (i as f64 / (NUM_POINTS - 1) as f64) * distance;
+				let mut tv = (2.0 * cur_dist / max_accel).sqrt();
+				if tv > half_t {
+					tv = 2.0 * half_t - tv;
+				}
+
+				let v = tv * max_accel;
+				let pos = start + (cur_dist / distance).value * (end - start);
+				velocities.push(v);
+				points.push(pos);
+			}
+			return Self::Path {
+				points,
+				velocities,
+				reversed: false,
+			};
+		}
+
+		// use trapezoid profile
+		// distance = h(a+b)/2
+		// a = a (time at max_vel)
+		// b = a + 2.0 * till_max (time at max_vel + acceleration time)
+		// h = max_vel
+		// distance = max_vel(a + a + 2.0 * till_max)/2
+		// distance = max_vel(a+till_max)
+		// distance / max_vel = a + till_max
+		// distance / max_vel - till_max = a
+		let t_at_max = distance / max_vel - till_max;
+		let t_total = t_at_max + 2.0 * till_max;
+		for i in 0..NUM_POINTS {
+			let cur_dist = (i as f64 / (NUM_POINTS - 1) as f64) * distance;
+			let mut tv = (2.0 * cur_dist / max_accel).sqrt();
+
+			if tv < till_max { // accel
+				 // no change
+			} else if tv > till_max {
+				// constant speed
+				tv = till_max;
+			} else {
+				// decel
+				tv = t_total - tv;
+			}
+
+			let v = tv * max_accel;
+			let pos = start + (cur_dist / distance).value * (end - start);
+			velocities.push(v);
+			points.push(pos);
+		}
+
+		Self::Path {
+			points,
+			velocities,
+			reversed: false,
 		}
 	}
 }

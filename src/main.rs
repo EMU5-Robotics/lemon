@@ -1,10 +1,18 @@
 use protocol::device::ControllerButtons;
 
 use crate::{
+	logging::*,
+	odom::*,
+	path::*,
+	pid::*,
 	replay::Player,
 	state::{GlobalState, InputChanges, InputState, RerunLogger},
 	units::*,
 };
+
+use robot_algorithms::prelude::Vec2;
+
+use uom::ConstZero;
 
 mod logging;
 mod motion_profile;
@@ -46,7 +54,12 @@ fn main() -> anyhow::Result<()> {
 	let flipper = state.take_motor(14, true);
 
 	// let target = meter_per_second!(0.1);
-	//let _turning_pid = AnglePid::new(0.3, 0.3, 0.3, radian!(1.0));
+	let mut tpid = AnglePid::new(3.0, 0.0, 0.0, degree!(90.0)); // this will do for now
+	let logger = state.network.rerun_logger();
+	let mut path = Path::new(vec![PathSegment::line(
+		Vec2::new(0.0, 0.0),
+		Vec2::new(1.0, 0.0),
+	)]);
 
 	// let logger = state.network.rerun_logger();
 	loop {
@@ -68,14 +81,17 @@ fn main() -> anyhow::Result<()> {
 
 			odom.update(&mut drive);
 
-			let axes = input.controller.axes_as_f32();
-			let d_power = axes[1];
-			let t_power = axes[2];
+			//let axes = input.controller.axes_as_f32();
+			//let d_power = axes[1];
+			//let t_power = axes[2];
 
 			flipper.voltage(flipper_mv(input.controller));
-			drive.drive(d_power, t_power);
 
-			// drive.set_velocity(target, target);
+			let (lv, rv) = match path.follow(&odom, &mut tpid) {
+				Some(v) => v,
+				None => (ConstZero::ZERO, ConstZero::ZERO),
+			};
+			drive.set_velocity(lv, rv);
 		}
 
 		/*** Write motor outputs to V5 ***/
@@ -85,7 +101,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn setup_field_rerun(logger: RerunLogger) {
-	logger.with(|rec, _| {
+	/*logger.with(|rec, _| {
 		rec.log_timeless("/", &rerun::ViewCoordinates::RIGHT_HAND_Z_UP)
 			.unwrap();
 		rec.log_timeless(
@@ -109,7 +125,7 @@ fn setup_field_rerun(logger: RerunLogger) {
 
 		rec.log_timeless("robot", &robot).unwrap();
 		rec.flush_blocking();
-	});
+	});*/
 }
 
 fn create_odometry(logger: RerunLogger) -> anyhow::Result<odom::DriveImuOdom> {

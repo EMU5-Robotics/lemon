@@ -120,19 +120,19 @@ impl DriveImuOdom {
 
 		self.vel = (dx / time, dy / time);
 
-		if self.log_update.elapsed() > Duration::from_millis(32) {
+		if self.log_update.elapsed() > Duration::from_millis(3) {
 			self.logger.with(|rerun, start| {
 				rerun.set_time_seconds("odom", start.elapsed().as_secs_f64());
 
 				// timeseries_colour(rerun, "odom/pos/x", self.pos.0.value, [127, 0, 127]);
 				// timeseries_colour(rerun, "odom/pos/y", self.pos.1.value, [0, 127, 127]);
-				// timeseries_colour(
-				// 	rerun,
-				// 	"odom/angle",
-				// 	self.angle.value.to_degrees(),
-				// 	[127, 127, 0],
-				// );
-				set_robot_offset(rerun, self.pos, self.angle);
+				timeseries_colour(
+					rerun,
+					"odom/angle",
+					self.angle.value.to_degrees(),
+					[127, 127, 0],
+				);
+				//set_robot_offset(rerun, self.pos, self.angle);
 			});
 			self.log_update = Instant::now();
 		}

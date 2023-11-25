@@ -1,3 +1,4 @@
+use crate::{logging::*, RerunLogger};
 use std::{
 	marker::PhantomData,
 	time::{Duration, Instant},
@@ -35,14 +36,19 @@ impl<T: Dimension + ?Sized, O: Dimension + ?Sized> Pid<T, O> {
 		let pv = pv.value;
 
 		let dt = self.time.elapsed().as_secs_f64();
-		if dt > Duration::from_micros(6000).as_secs_f64() {
+		/*if dt > Duration::from_micros(6000).as_secs_f64() {
 			return self.last_output;
-		}
+		}*/
 		self.time = Instant::now();
 
 		let err = self.target.value - pv;
 
+		/*logger.clone().with(|rec, _| {
+			timeseries(rec, "odom/error", err.value().to_degrees());
+		});*/
+
 		let prop_term = self.kp * err;
+		//println!("{prop_term}");
 
 		// modifications to integration are done to prevent integral windup
 		// see https://en.wikipedia.org/wiki/Integral_windup
