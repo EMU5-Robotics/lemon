@@ -1,11 +1,7 @@
-use std::{
-	f64::consts::PI,
-	time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
-use bno055::Bno055;
-use ringbuffer::RingBuffer;
-use rppal::i2c::I2c;
+use bno055::{BNO055OperationMode, Bno055};
+use rppal::{hal::Delay, i2c::I2c};
 use uom::ConstZero;
 
 use crate::{logging::*, parts::drive::Drive, state::RerunLogger, units::*};
@@ -34,8 +30,15 @@ pub struct DriveImuOdom {
 }
 
 impl DriveImuOdom {
-	pub fn new(logger: RerunLogger, imu: Bno055<I2c>) -> Self {
-		Self {
+	pub fn new(logger: RerunLogger) -> anyhow::Result<Self> {
+		let i2c = I2c::new()?;
+		let mut delay = Delay::new();
+		let mut imu = Bno055::new(i2c).with_alternative_address();
+		imu.init(&mut delay)?;
+		imu.set_mode(BNO055OperationMode::GYRO_ONLY, &mut delay)?;
+		imu.set_external_crystal(true, &mut delay)?;
+
+		Ok(Self {
 			pos: (ConstZero::ZERO, ConstZero::ZERO),
 			angle: ConstZero::ZERO,
 			vel: (ConstZero::ZERO, ConstZero::ZERO),
@@ -47,7 +50,7 @@ impl DriveImuOdom {
 			update: Instant::now(),
 			imu,
 			logger,
-		}
+		})
 	}
 
 	pub fn get_angle_difference(&mut self) -> Option<Angle> {
@@ -132,7 +135,7 @@ impl DriveImuOdom {
 					self.angle.value.to_degrees(),
 					[127, 127, 0],
 				);
-				//set_robot_offset(rerun, self.pos, self.angle);
+				//set_robot_offset(rerun, self.pos);
 			});
 			self.log_update = Instant::now();
 		}

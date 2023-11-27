@@ -1,5 +1,4 @@
-use crate::state::InputChanges;
-use chrono::prelude::*;
+use crate::{state::InputChanges, GlobalState, InputState};
 use protocol::device::ControllerButtons;
 use std::{
 	fmt,
@@ -40,6 +39,32 @@ pub enum Recorder {
 		last: Instant,
 		events: Vec<(u32, InputChanges)>,
 	},
+}
+
+pub fn _handle_replay(input: &InputState, state: &mut GlobalState) {
+	// Toggle recording
+	if state.player.is_none() && input.controller.button_pressed(ControllerButtons::A) {
+		log::info!("Toggled recording");
+		if let Err(e) = state.recorder.toggle() {
+			log::error!("recorder toggle failed with: {e}");
+		}
+	}
+
+	// Load and start recording
+	if state.player.is_none() && input.controller.button_pressed(ControllerButtons::B) {
+		// Load the player and start it
+		state.player = Player::from_file("test.replay").map(Player::play).ok();
+	}
+
+	// Update the recorder
+	if let Err(e) = state.recorder.take_event(&input.controller) {
+		log::error!("recorder failed to take event with: {e}");
+	}
+}
+impl Default for Recorder {
+	fn default() -> Self {
+		Self::new()
+	}
 }
 
 impl Recorder {
@@ -101,8 +126,6 @@ impl Recorder {
 	}
 
 	fn write_events(events: &[(u32, InputChanges)]) -> Result<(), ReplayError> {
-		// let filename = Local::now().format("%Y-%m-%d_%H:%M:%S.replay").to_string();
-
 		let mut file = std::fs::File::create("test.replay")?;
 
 		for (diff, changes) in events {
@@ -147,12 +170,11 @@ impl Player {
 
 		let mut events = Vec::new();
 		let mut held = ControllerButtons::empty();
-		let mut axes = [0; 4];
 
 		let mut line = 1;
 		loop {
 			let mut changes = InputChanges::NO_CHANGE;
-			changes.axes = axes;
+			changes.axes = [0; 4];
 
 			let mut string = String::new();
 			if reader.read_line(&mut string).is_err() {

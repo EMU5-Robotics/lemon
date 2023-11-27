@@ -12,6 +12,7 @@ pub struct PowerMotors {
 impl IntoSeg for PowerMotors {}
 
 impl PowerMotors {
+	#[allow(dead_code)]
 	pub fn new(voltages: Vec<i16>, motors: Vec<Motor>) -> Self {
 		Self { voltages, motors }
 	}

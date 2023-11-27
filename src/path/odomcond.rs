@@ -1,6 +1,4 @@
-use crate::{odom::DriveImuOdom, pid::*, state::Motor, units::*};
-
-use uom::ConstZero;
+use crate::{odom::DriveImuOdom, pid::*, units::*};
 
 use super::{IntoSeg, PathSegment, Timer};
 
@@ -19,6 +17,7 @@ impl<F> OdomCond<F>
 where
 	F: Fn(&DriveImuOdom) -> bool,
 {
+	#[allow(dead_code)]
 	pub fn new(
 		cond: F,
 		a: (Box<dyn PathSegment>, Timer),

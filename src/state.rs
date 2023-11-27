@@ -239,37 +239,34 @@ impl Network {
 	}
 
 	pub fn wait_for_rerun_server(&mut self) {
+		use common::protocol::{ControlMessage, ManageMessage};
+
 		let program_start = Instant::now();
 		loop {
 			let mut mutex = self.0.lock().unwrap();
 			if let Some(net) = mutex.0.as_mut() {
 				let pkt = net.network_client.rx.recv().unwrap();
-				match pkt.msg {
-					common::protocol::ControlMessage::ManageMessage(msg) => match msg {
-						common::protocol::ManageMessage::AnnounceRerunServer(addr) => {
-							let rerun =
-								RecordingStreamBuilder::new(net.network_client.name.clone())
-									.store_id(StoreId::from_string(
-										StoreKind::Recording,
-										String::from("bot"),
-									))
-									.connect_opts(addr, Some(Duration::from_millis(2_000)))
-									.unwrap_or(
-										RecordingStreamBuilder::new("lemon (file fallback)")
-											.save("recording.rrd")
-											.unwrap(),
-									);
-							rerun::Logger::new(rerun.clone())
-								.with_path_prefix("logs")
-								.with_filter(rerun::default_log_filter())
-								.init()
-								.unwrap();
-							mutex.1 = RerunLogger(program_start, Some(rerun));
-							return;
-						}
-						_ => {}
-					},
-					_ => {}
+				if let ControlMessage::ManageMessage(ManageMessage::AnnounceRerunServer(addr)) =
+					pkt.msg
+				{
+					let rerun = RecordingStreamBuilder::new(net.network_client.name.clone())
+						.store_id(StoreId::from_string(
+							StoreKind::Recording,
+							String::from("bot"),
+						))
+						.connect_opts(addr, Some(Duration::from_millis(2_000)))
+						.unwrap_or(
+							RecordingStreamBuilder::new("lemon (file fallback)")
+								.save("recording.rrd")
+								.unwrap(),
+						);
+					rerun::Logger::new(rerun.clone())
+						.with_path_prefix("logs")
+						.with_filter(rerun::default_log_filter())
+						.init()
+						.unwrap();
+					mutex.1 = RerunLogger(program_start, Some(rerun));
+					return;
 				}
 			}
 			drop(mutex);
@@ -288,11 +285,8 @@ pub struct RerunLogger(Instant, Option<RecordingStream>);
 impl RerunLogger {
 	#[inline]
 	pub fn with<F: FnOnce(&RecordingStream, Instant)>(&self, f: F) {
-		match self.1 {
-			Some(ref stream) => {
-				f(stream, self.0);
-			}
-			None => (),
+		if let Some(ref stream) = self.1 {
+			f(stream, self.0);
 		}
 	}
 }
@@ -372,7 +366,7 @@ impl InputChanges {
 
 	#[inline]
 	pub fn axes(&self) -> [i8; 4] {
-		self.axes.clone()
+		self.axes
 	}
 
 	#[inline]
@@ -419,7 +413,7 @@ impl Motor {
 	}
 
 	#[inline]
-	fn disconnect(&self) {
+	fn _disconnect(&self) {
 		self.0.connected.store(false, Ordering::Release);
 		self.0.power.store(0, Ordering::Release);
 		self.0.is_velocity.store(false, Ordering::Release);

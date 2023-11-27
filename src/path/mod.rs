@@ -4,12 +4,12 @@ use crate::{odom::DriveImuOdom, pid::*, units::*};
 use std::time::{Duration, Instant};
 
 pub mod odomcond;
-pub mod path;
+pub mod pathseg;
 pub mod powermotors;
 pub mod turnto;
 
 pub use odomcond::*;
-pub use path::*;
+pub use pathseg::*;
 pub use powermotors::*;
 pub use turnto::*;
 
@@ -35,11 +35,8 @@ impl Path {
 			// exit if timer is up
 			if timer.done() {
 				seg.end_follow();
-			} else {
-				match seg.follow(odom, turn_pid) {
-					Some(vels) => return Some(vels),
-					None => {} // segment ended
-				}
+			} else if let Some(vels) = seg.follow(odom, turn_pid) {
+				return Some(vels);
 			}
 		}
 

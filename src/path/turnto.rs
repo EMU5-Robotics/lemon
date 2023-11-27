@@ -20,6 +20,7 @@ impl IntoSeg for TurnTo {}
 impl IntoSeg for RelativeTurnTo {}
 
 impl TurnTo {
+	#[allow(dead_code)]
 	pub fn new(angle: Angle) -> Self {
 		Self {
 			target: angle,
@@ -95,6 +96,7 @@ impl PathSegment for TurnTo {
 }
 
 impl RelativeTurnTo {
+	#[allow(dead_code)]
 	pub fn new(angle: Angle) -> Self {
 		Self {
 			target: angle,

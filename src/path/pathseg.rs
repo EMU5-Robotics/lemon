@@ -22,6 +22,7 @@ impl IntoSeg for PathSeg {}
 impl IntoSeg for RelativePath {}
 
 impl PathSeg {
+	#[allow(dead_code)]
 	pub fn line(start: Vec2, end: Vec2, reversed: bool) -> Self {
 		const NUM_POINTS: usize = 64;
 

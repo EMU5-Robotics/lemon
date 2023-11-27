@@ -1,7 +1,6 @@
 use std::{iter, time::Instant};
 
 use crate::{
-	logging::*,
 	state::{Motor, RerunLogger},
 	units::*,
 };
