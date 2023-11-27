@@ -57,46 +57,27 @@ fn main() -> anyhow::Result<()> {
 	let mut tpid = AnglePid::new(3.5, 1.0, 0.0, degree!(0.0)); // this will do for now
 
 	let mut path = Path::new(vec![
-		(
-			PathSegment::line(Vec2::new(0.0, 0.0), Vec2::new(0.0, 1.18), false),
-			Default::default(),
-		),
-		(PathSegment::rotate_abs(degree!(45.0)), Default::default()),
-		(
-			PathSegment::line(Vec2::new(0.0, 1.18), Vec2::new(0.70, 1.88), false),
-			Timer::new(Duration::from_secs(3)),
-		),
-		(
-			PathSegment::PowerMotors {
-				voltages: vec![-12000, 12000, 12000, 12000, -12000, -12000, -12000],
-				motors: vec![
-					flipper.clone(),
-					drive.left[0].clone(),
-					drive.left[1].clone(),
-					drive.left[2].clone(),
-					drive.right[0].clone(),
-					drive.right[1].clone(),
-					drive.right[2].clone(),
-				],
-			},
-			Timer::new(Duration::from_secs(2)),
-		),
-		(
-			PathSegment::PowerMotors {
-				voltages: vec![12000],
-				motors: vec![flipper.clone()],
-			},
-			Timer::new(Duration::from_secs(2)),
-		),
-		(
-			PathSegment::into_relative(PathSegment::line(
-				Vec2::new(0.0, 0.0),
-				Vec2::new(0.0, -0.10),
-				true,
-			)),
-			Timer::new(Duration::from_secs(1)),
-		),
-		//(PathSegment::rotate_abs(degree!(45.0)), Default::default()),
+		PathSeg::line(Vec2::new(0.0, 0.0), Vec2::new(0.0, 1.18), false).default_timer(),
+		TurnTo::new(degree!(47.0)).default_timer(),
+		PathSeg::line(Vec2::new(0.0, 1.18), Vec2::new(0.70, 1.88), false)
+			.with_timer(Duration::from_secs(3)),
+		PowerMotors::new(
+			vec![-12000, 12000, 12000, 12000, -12000, -12000, -12000],
+			vec![
+				flipper.clone(),
+				drive.left[0].clone(),
+				drive.left[1].clone(),
+				drive.left[2].clone(),
+				drive.right[0].clone(),
+				drive.right[1].clone(),
+				drive.right[2].clone(),
+			],
+		)
+		.with_timer(Duration::from_secs(2)),
+		PowerMotors::new(vec![12000], vec![flipper.clone()]).with_timer(Duration::from_secs(2)),
+		PathSeg::line(Vec2::new(0.0, 0.0), Vec2::new(0.0, -0.10), true)
+			.into_relative()
+			.with_timer(Duration::from_secs(1)),
 	]);
 
 	// let target = meter_per_second!(0.1);

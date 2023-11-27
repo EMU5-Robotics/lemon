@@ -83,4 +83,3 @@ impl<T: Dimension + ?Sized, O: Dimension + ?Sized> Pid<T, O> {
 }
 
 pub type AnglePid = Pid<angle::Dimension, angular_velocity::Dimension>;
-pub type VelocityPid = Pid<velocity::Dimension, power::Dimension>;
