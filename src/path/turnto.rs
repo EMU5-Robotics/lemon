@@ -17,6 +17,7 @@ pub struct TurnTo {
 }
 
 impl IntoSeg for TurnTo {}
+impl IntoSeg for RelativeTurnTo {}
 
 impl TurnTo {
 	pub fn new(angle: Angle) -> Self {
@@ -65,6 +66,55 @@ impl PathSegment for TurnTo {
 		// and store offset
 		self.offset = -odom.angle();
 		self.target = map_to_closest_global(self.target) + self.offset;
+		turn_pid.change_target(self.target);
+	}
+	fn follow(
+		&mut self,
+		odom: &DriveImuOdom,
+		turn_pid: &mut AnglePid,
+	) -> Option<(Velocity, Velocity)> {
+		let angle = odom.angle();
+		let angular_vel = turn_pid.step(angle + self.offset);
+
+		let side_spacing: Length = meter!(0.14); // 28cm between sides?
+		let mut side_vel = angular_vel * side_spacing;
+
+		// scale velocity to stay within velocity limits
+		let max_vel: Velocity = meter_per_second!(2.6);
+		let scale = max_vel / side_vel.abs();
+		if scale.value < 1.0 && !scale.value.is_nan() {
+			side_vel = side_vel * scale;
+		}
+
+		if (angle + self.offset - self.target).abs() < degree!(5.0) && side_vel.abs().value < 0.01 {
+			return None;
+		}
+		Some((-side_vel, side_vel))
+	}
+	fn end_follow(&mut self) {}
+}
+
+impl RelativeTurnTo {
+	pub fn new(angle: Angle) -> Self {
+		Self {
+			target: angle,
+			offset: ConstZero::ZERO,
+		}
+	}
+}
+
+pub struct RelativeTurnTo {
+	target: Angle,
+	offset: Angle,
+}
+
+impl PathSegment for RelativeTurnTo {
+	// transform target into local space and set offset
+	fn start_follow(&mut self, odom: &DriveImuOdom, turn_pid: &mut AnglePid) {
+		turn_pid.reset();
+
+		// offset angle by current position
+		self.offset = -odom.angle();
 		turn_pid.change_target(self.target);
 	}
 	fn follow(

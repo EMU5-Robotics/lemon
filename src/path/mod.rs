@@ -3,10 +3,12 @@ use std::collections::VecDeque;
 use crate::{odom::DriveImuOdom, pid::*, units::*};
 use std::time::{Duration, Instant};
 
+pub mod odomcond;
 pub mod path;
 pub mod powermotors;
 pub mod turnto;
 
+pub use odomcond::*;
 pub use path::*;
 pub use powermotors::*;
 pub use turnto::*;
@@ -58,6 +60,12 @@ impl Path {
 }
 
 pub trait PathSegment {
+	fn transform<'a>(a: Box<Self>, _: &DriveImuOdom) -> (Box<dyn PathSegment + 'a>, Timer)
+	where
+		Self: Sized + 'a,
+	{
+		(a, Default::default())
+	}
 	fn start_follow(&mut self, _: &DriveImuOdom, _: &mut AnglePid) {}
 	fn follow(
 		&mut self,
@@ -87,7 +95,7 @@ where
 
 impl Default for Timer {
 	fn default() -> Self {
-		Self::new(Duration::from_secs(30))
+		Self::new(Duration::from_secs(10_000))
 	}
 }
 
