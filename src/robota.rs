@@ -1,22 +1,43 @@
+use std::time::Duration;
+
 use crate::{
 	odom::*,
 	parts::drive::*,
 	path::*,
 	pid::*,
-	state::{GlobalState, InputState, Motor},
+	state::{self, GlobalState, InputState, Motor},
 	units::*,
 };
 
 use robot_algorithms::prelude::Vec2;
-use std::time::Duration;
+use protocol::device::Gearbox;
 use uom::ConstZero;
 
 pub fn robota() -> anyhow::Result<()> {
-	let (mut state, _logger, odom, drive) = crate::setup()?;
+	let (mut state, _logger, odom) = crate::setup()?;
 
 	let input = state.create_input_state();
 
 	let flipper = state.take_motor(15, true);
+
+		let drive = Drive::new(
+		state.network.rerun_logger(),
+		[
+			state.take_motor(4, false),
+			state.take_motor(5, false),
+			state.take_motor(11, false),
+		],
+		[
+			state.take_motor(1, true),
+			state.take_motor(2, true),
+			state.take_motor(3, true),
+		],
+		Gearbox::Blue,
+		0.8,
+	);
+	let gearboxes = drive.get_gearboxes().into_iter();
+
+	state.serial.set_gearboxes(state::generate_gearboxes(gearboxes));
 
 	auton(state, input, odom, drive, flipper);
 }

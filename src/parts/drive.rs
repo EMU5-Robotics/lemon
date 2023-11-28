@@ -1,5 +1,7 @@
 use std::{iter, time::Instant};
 
+use protocol::device::Gearbox;
+
 use crate::{
 	state::{Motor, RerunLogger},
 	units::*,
@@ -10,16 +12,21 @@ pub struct Drive {
 	pub right: [Motor; 3],
 	turn_rate: f32,
 	last_encoder: (Length, Length),
-	// smooth between last 5 values
-	// encoders: [(Length, Length, Instant); 5],
 	last_update: Instant,
+	gearbox: Gearbox,
 	logger: RerunLogger,
 }
 
 const MAX_MILLIVOLT: f32 = 12_000.0;
 
 impl Drive {
-	pub fn new(logger: RerunLogger, left: [Motor; 3], right: [Motor; 3], turn_rate: f32) -> Self {
+	pub fn new(
+		logger: RerunLogger,
+		left: [Motor; 3],
+		right: [Motor; 3],
+		gearbox: Gearbox,
+		turn_rate: f32,
+	) -> Self {
 		if !(0.0..1.0).contains(&turn_rate) {
 			panic!("Invalid turn rate");
 		}
@@ -30,6 +37,7 @@ impl Drive {
 			turn_rate,
 			last_encoder: (meter!(0.0), meter!(0.0)),
 			last_update: Instant::now(),
+			gearbox,
 			logger,
 		}
 	}
@@ -87,19 +95,16 @@ impl Drive {
 			return None;
 		}
 
-		let l_rev = match self.left[0].is_reversed() {
-			true => -1.0,
-			false => 1.0,
-		};
-		let r_rev = match self.right[0].is_reversed() {
-			true => -1.0,
-			false => 1.0,
-		};
-
 		const MULTIPLIER: f64 = 1.0 / 115000.0;
 		Some((
-			meter!(self.left[0].position() as f64 * l_rev * MULTIPLIER),
-			meter!(self.right[0].position() as f64 * r_rev * MULTIPLIER),
+			meter!(
+				self.left[0].position() as f64 * self.left[0].reversed_factor() as f64 * MULTIPLIER
+			),
+			meter!(
+				self.right[0].position() as f64
+					* self.right[0].reversed_factor() as f64
+					* MULTIPLIER
+			),
 		))
 	}
 
@@ -109,19 +114,20 @@ impl Drive {
 			return None;
 		}
 
-		let l_rev = match self.left[0].is_reversed() {
-			true => -1.0,
-			false => 1.0,
-		};
-		let r_rev = match self.right[0].is_reversed() {
-			true => -1.0,
-			false => 1.0,
-		};
-
 		Some((
-			l_rev * to_ms(revolution_per_minute!(self.left[0].actual_velocity() as _)),
-			r_rev * to_ms(revolution_per_minute!(self.right[0].actual_velocity() as _)),
+			to_ms(revolution_per_minute!(self.left[0].actual_velocity() as f64))
+				* self.left[0].reversed_factor() as f64,
+			to_ms(revolution_per_minute!(
+				self.right[0].actual_velocity() as f64
+			)) * self.right[0].reversed_factor() as f64,
 		))
+	}
+
+	pub fn get_gearboxes(&self) -> impl IntoIterator<Item = (u8, Gearbox)> + '_ {
+		self.left
+			.iter()
+			.chain(self.right.iter())
+			.map(|m| (m.port(), self.gearbox))
 	}
 }
 
