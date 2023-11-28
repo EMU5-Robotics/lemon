@@ -10,7 +10,10 @@ use client::{
 	coprocessor::serial::{find_v5_port, Serial, SerialSpawner},
 	network::{listen_for_server, Client, ClientConfiguration},
 };
-use protocol::{device::ControllerButtons, ControlPkt, StatusPkt};
+use protocol::{
+	device::{ControllerButtons, Gearbox},
+	ControlPkt, StatusPkt,
+};
 use rerun::{RecordingStream, RecordingStreamBuilder, StoreId, StoreKind};
 
 use crate::replay::{Player, Recorder};
@@ -211,11 +214,12 @@ impl Network {
 			.unwrap();
 		// RecordingStreamBuilder::new("lemon").connect_opts("192.168.65.86:9876".parse().unwrap(), Some(Duration::from_secs(2))).unwrap();
 		// RecordingStreamBuilder::new("lemon").connect().unwrap();
-		rerun::Logger::new(rerun.clone())
-			.with_path_prefix("logs")
-			.with_filter(rerun::default_log_filter())
-			.init()
-			.unwrap();
+		// rerun::Logger::new(rerun.clone())
+		// .with_path_prefix("logs")
+		// .with_filter(rerun::default_log_filter())
+		// .init()
+		// .unwrap();
+		common::create_logger();
 		let logger = RerunLogger(Instant::now(), Some(rerun));
 		Network(Arc::new(Mutex::new((None, logger))))
 	}
@@ -380,13 +384,13 @@ impl InputChanges {
 	}
 }
 
-struct MotorInner {
+pub struct MotorInner {
 	// Metadata
 	port: AtomicU8,
 	connected: AtomicBool,
 	reversed: AtomicBool,
 	// Sent
-	power: AtomicI16,
+	pub power: AtomicI16,
 	is_velocity: AtomicBool,
 	// Received
 	position: AtomicI32,
@@ -395,7 +399,7 @@ struct MotorInner {
 }
 
 #[derive(Clone)]
-pub struct Motor(Arc<MotorInner>);
+pub struct Motor(pub Arc<MotorInner>);
 
 impl Motor {
 	fn new(port: u8) -> Self {
@@ -443,6 +447,14 @@ impl Motor {
 	}
 
 	#[inline]
+	pub fn reversed_factor(&self) -> isize {
+		match self.is_reversed() {
+			true => -1,
+			false => 1,
+		}
+	}
+
+	#[inline]
 	pub fn voltage(&self, voltage: i16) {
 		self.0.power.store(voltage, Ordering::Release);
 		self.0.is_velocity.store(false, Ordering::Release);
@@ -468,4 +480,12 @@ impl Motor {
 	pub fn actual_velocity(&self) -> f32 {
 		f32::from_bits(self.0.velocity.load(Ordering::Acquire))
 	}
+}
+
+pub fn generate_gearboxes(iter: impl IntoIterator<Item = (u8, Gearbox)>) -> [Gearbox; 20] {
+	let mut gearboxes = [Gearbox::default(); 20];
+	for (port, gearbox) in iter {
+		gearboxes[(port - 1) as usize] = gearbox;
+	}
+	gearboxes
 }
