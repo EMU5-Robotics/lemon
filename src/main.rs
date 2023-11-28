@@ -6,6 +6,7 @@ use crate::{
 	units::*,
 };
 
+mod imu;
 mod logging;
 mod motion_profile;
 mod odom;
