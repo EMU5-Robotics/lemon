@@ -1,8 +1,10 @@
-use crate::units::{degree, degree_per_second, second, Angle, AngularVelocity, Time};
+use std::time::{Duration, Instant};
+
 use bno055::Bno055;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 use rppal::i2c::I2c;
-use std::time::{Duration, Instant};
+
+use crate::units::{degree, degree_per_second, second, Angle, AngularVelocity, Time};
 
 const BUFFER_SIZE: usize = 8;
 

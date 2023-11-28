@@ -1,8 +1,6 @@
 use std::time::{Duration, Instant};
 
-use uom::ConstZero;
-
-use crate::{imu::*, logging::*, parts::drive::Drive, state::RerunLogger, units::*};
+use crate::{logging::*, parts::drive::Drive, parts::imu::*, state::RerunLogger, units::*};
 
 pub trait Odometry {
 	fn pos(&self) -> (Length, Length);

@@ -1,81 +1,57 @@
 use std::time::Duration;
 
-use crate::{
-	odom::*,
-	parts::drive::*,
+use lemon::{
+	parts::drive::Drive,
 	path::*,
-	pid::*,
-	state::{self, GlobalState, InputState, Motor},
+	state::{Gearbox, GlobalState, Motor},
 	units::*,
 };
-
 use robot_algorithms::prelude::Vec2;
-use protocol::device::Gearbox;
-use uom::ConstZero;
 
-pub fn robota() -> anyhow::Result<()> {
-	let (mut state, _logger, odom) = crate::setup()?;
-
-	let input = state.create_input_state();
-
-	let flipper = state.take_motor(15, true);
-
-		let drive = Drive::new(
-		state.network.rerun_logger(),
-		[
-			state.take_motor(4, false),
-			state.take_motor(5, false),
-			state.take_motor(11, false),
-		],
-		[
-			state.take_motor(1, true),
-			state.take_motor(2, true),
-			state.take_motor(3, true),
-		],
-		Gearbox::Blue,
-		0.8,
-	);
-	let gearboxes = drive.get_gearboxes().into_iter();
-
-	state.serial.set_gearboxes(state::generate_gearboxes(gearboxes));
-
-	auton(state, input, odom, drive, flipper);
+type Robot = lemon::Robot<Parts>;
+struct Parts {
+	flipper: Motor,
+	path: Option<Path>,
 }
 
-fn auton(
-	mut state: GlobalState,
-	mut input: InputState,
-	mut odom: DriveImuOdom,
-	mut drive: Drive,
-	flipper: Motor,
-) -> ! {
-	let mut tpid = AnglePid::new(3.5, 1.0, 0.0, degree!(0.0)); // this will do for now
+pub fn main() -> anyhow::Result<()> {
+	let robot = Robot::setup(
+		create_parts,
+		create_drive,
+		None,
+		Some(user_control),
+		Some(auton),
+	)?;
 
-	let mut path = auton_path(&drive, flipper);
+	robot.run()
+}
 
-	loop {
-		/*** Gather all input from serial, sensors, etc. ***/
-		if let Some(status_pkt) = state.serial.take_status_pkt() {
-			input.update_v5_status(status_pkt);
-		} else {
-			input.update_inputs();
-		}
-		input.overwrite_replay_input(&mut state.player);
+fn user_control(robot: &mut Robot) {
+	let controller = robot.input.controller;
 
-		/*** Process inputs to parts ***/
-		odom.update(&mut drive);
+	let axes = controller.axes_as_f32();
+	let d_power = axes[1];
+	let t_power = axes[2];
+	robot.base.drive(d_power, t_power);
+}
 
-		let (lv, rv) = match path.follow(&odom, &mut tpid) {
-			Some(v) => v,
-			None => (ConstZero::ZERO, ConstZero::ZERO),
-		};
-
-		drive.set_velocity(lv, rv);
-
-		/*** Write motor outputs to V5 ***/
-		state.write_serial_output();
-		state.loop_delay();
+fn auton(robot: &mut Robot) {
+	// Create auton path if it doesn't exist
+	if robot.path.is_none() {
+		robot.path = Some(auton_path(&robot.base, robot.flipper.clone()));
 	}
+	let mut path = robot.parts.path.take().unwrap();
+
+	// Follow the path
+	let (lv, rv) = match path.follow(&robot.odom, &mut robot.tpid) {
+		Some(v) => v,
+		None => (ConstZero::ZERO, ConstZero::ZERO),
+	};
+
+	// Set the drive speed
+	robot.base.set_velocity(lv, rv);
+
+	robot.path = Some(path);
 }
 
 fn auton_path(drive: &Drive, flipper: Motor) -> Path {
@@ -102,4 +78,34 @@ fn auton_path(drive: &Drive, flipper: Motor) -> Path {
 			.into_relative()
 			.with_timer(Duration::from_secs(1)),
 	])
+}
+
+fn create_parts(state: &mut GlobalState) -> anyhow::Result<Parts> {
+	let flipper = state.take_motor(15, false);
+
+	Ok(Parts {
+		flipper,
+		path: None,
+	})
+}
+
+fn create_drive(state: &mut GlobalState) -> anyhow::Result<Drive> {
+	let drive = Drive::new(
+		state.network.rerun_logger(),
+		[
+			state.take_motor(4, false),
+			state.take_motor(5, false),
+			state.take_motor(11, false),
+		],
+		[
+			state.take_motor(1, true),
+			state.take_motor(2, true),
+			state.take_motor(3, true),
+		],
+		Gearbox::Blue,
+		0.8,
+	);
+	state.serial.set_gearboxes(drive.get_gearboxes());
+
+	Ok(drive)
 }

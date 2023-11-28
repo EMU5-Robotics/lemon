@@ -3,28 +3,31 @@ name = "lemon"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "robota"
+path = "src/robota.rs"
+
+[[bin]]
+name = "robotb"
+path = "src/robotb.rs"
+
 [dependencies]
 client = { path = "../transport/client", features = ["coprocessor"] }
 common = { path = "../transport/common" }
 protocol = { path = "../transport/vex/protocol" }
 
-chrono = "0.4.28"
+robot_algorithms = { git = "https://github.com/nonl4331/robot-algorithms" }
+
+uom = "0.35"
 log = "0.4"
-rerun = { version = "0.10.1", default_features = false, features = ["log", "sdk"] }
-dotenvy = "0.15.7"
+dotenvy = "0.15"
 anyhow = "1.0"
+ringbuffer = "0.15"
 
 bno055 = { version = "0.3.3", features = ["std"] }
 embedded-hal = { version = "0.2.7", features = ["unproven"] }
+rerun = { version = "0.10.1", default_features = false, features = ["log", "sdk"] }
 rppal = { version = "0.14.1", features = ["hal-unproven"] }
-
-robot_algorithms = { git = "https://github.com/nonl4331/robot-algorithms" }
-nalgebra = { version = "0.32.3", features = ["libm-force", "alloc", "convert-mint"] }
-base64 = "0.21.3"
-uom = "0.35.0"
-typenum = "1.17.0"
-once_cell = "1.18.0"
-ringbuffer = "0.15.0"
 
 [profile.dev]
 strip = "debuginfo"

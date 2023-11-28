@@ -1,6 +1,6 @@
-use crate::units::*;
 use robot_algorithms::prelude::*;
-use uom::si::f64::Velocity;
+
+use crate::units::*;
 
 pub fn get_profile_velocity(profile: (&[Velocity], &[Vec2]), pos: Pos2) -> Velocity {
 	let (vel, points) = profile;

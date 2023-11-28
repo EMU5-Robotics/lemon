@@ -1519,22 +1519,17 @@ name = "lemon"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64",
  "bno055",
- "chrono",
  "client",
  "common",
  "dotenvy",
  "embedded-hal 0.2.7",
  "log",
- "nalgebra",
- "once_cell",
  "protocol",
  "rerun",
  "ringbuffer",
  "robot_algorithms",
  "rppal",
- "typenum",
  "uom",
 ]
 
@@ -1543,12 +1538,6 @@ name = "libc"
 version = "0.2.148"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9cdc71e17332e86d2e1d38c1f99edcb6288ee11b815fb1a4b049eaa2114d369b"
-
-[[package]]
-name = "libm"
-version = "0.2.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7012b1bbb0719e1097c47611d3898568c546d597c2e74d66f6087edd5233ff4"
 
 [[package]]
 name = "libudev"
@@ -1746,7 +1735,6 @@ checksum = "307ed9b18cc2423f29e83f84fd23a8e73628727990181f18641a8b5dc2ab1caa"
 dependencies = [
  "approx",
  "matrixmultiply",
- "mint",
  "nalgebra-macros",
  "num-complex",
  "num-rational",
@@ -3066,7 +3054,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "061507c94fc6ab4ba1c9a0305018408e312e17c041eb63bef8aa726fa33aceae"
 dependencies = [
  "approx",
- "libm",
  "num-complex",
  "num-traits",
  "paste",

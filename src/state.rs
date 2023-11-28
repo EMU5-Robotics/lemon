@@ -10,13 +10,12 @@ use client::{
 	coprocessor::serial::{find_v5_port, Serial, SerialSpawner},
 	network::{listen_for_server, Client, ClientConfiguration},
 };
-use protocol::{
-	device::{ControllerButtons, Gearbox},
-	ControlPkt, StatusPkt,
-};
+use protocol::{device::CompetitionState, ControlPkt, StatusPkt};
 use rerun::{RecordingStream, RecordingStreamBuilder, StoreId, StoreKind};
 
 use crate::replay::{Player, Recorder};
+
+pub use protocol::device::{ControllerButtons, Gearbox};
 
 pub struct GlobalState {
 	/// The serial link to the V5
@@ -196,6 +195,26 @@ impl InputState {
 			self.controller = event.1;
 		} else if let Some(last) = self.replay_last {
 			self.controller = last;
+		}
+	}
+
+	pub fn is_competition(&self) -> bool {
+		self.v5_status.1.state.contains(CompetitionState::CONNECTED)
+	}
+
+	pub fn compute_comp_state(&self) -> crate::CompetitionState {
+		let state = self
+			.v5_status
+			.1
+			.state
+			.difference(CompetitionState::CONNECTED);
+
+		if state.contains(CompetitionState::DISABLED) {
+			return crate::CompetitionState::Disabled;
+		} else if state.contains(CompetitionState::AUTONOMOUS) {
+			return crate::CompetitionState::Autonomous;
+		} else {
+			return crate::CompetitionState::UserControl;
 		}
 	}
 }

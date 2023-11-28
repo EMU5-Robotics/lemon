@@ -1,10 +1,10 @@
-use crate::{state::InputChanges, GlobalState, InputState};
-use protocol::device::ControllerButtons;
 use std::{
 	fmt,
 	io::{self, BufRead, Write},
 	time::Instant,
 };
+
+use crate::state::{ControllerButtons, GlobalState, InputChanges, InputState};
 
 #[derive(Debug)]
 pub enum ReplayError {
