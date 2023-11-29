@@ -78,10 +78,9 @@ fn auton_path(drive: &Drive, flipper: Motor, hang: [Motor; 2]) -> Path {
 	let drive_forward_and_open_net =
 		Aux::new(drive_forward, open_net).with_timer(Duration::from_secs(2));
 	Path::new(vec![
-		//TurnTo::new(degree!(45.0)).default_timer(),
 		//PowerMotors::new(vec![12000, 12000], hang.to_vec()).with_timer(Duration::from_secs(10)),
-		PathSeg::line(Vec2::new(0.0, 0.0), Vec2::new(0.0, 1.18), false).default_timer(),
-		TurnTo::new(degree!(40.0)).default_timer(),
+		PathSeg::line(Vec2::new(0.0, 0.0), Vec2::new(0.0, 1.49), false).default_timer(),
+		TurnTo::new(degree!(60.0)).default_timer(),
 		Nop::new().with_timer(Duration::from_millis(500)),
 		SetVel::new((meter_per_second!(5.0), meter_per_second!(5.0)))
 			.with_timer(Duration::from_secs(3)),
@@ -117,7 +116,7 @@ fn create_drive(state: &mut GlobalState) -> anyhow::Result<Drive> {
 			state.take_motor(11, false),
 		],
 		Gearbox::Blue,
-		0.8,
+		0.7,
 	);
 	state.serial.set_gearboxes(drive.get_gearboxes());
 
