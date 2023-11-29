@@ -52,6 +52,16 @@ impl Drive {
 		}
 	}
 
+	pub fn drive_skid(&self, lpower: f32, rpower: f32) {
+		let lpower = (lpower.clamp(-1.0, 1.0) * MAX_MILLIVOLT) as i16;
+		let rpower = (rpower.clamp(-1.0, 1.0) * MAX_MILLIVOLT) as i16;
+
+		for (lmotor, rmotor) in iter::zip(&self.left, &self.right) {
+			lmotor.voltage(lpower);
+			rmotor.voltage(rpower);
+		}
+	}
+
 	pub fn set_velocity(&self, left: Velocity, right: Velocity) {
 		let lvel = to_rpm(left).value;
 		let rvel = to_rpm(right).value;

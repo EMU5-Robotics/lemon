@@ -403,13 +403,13 @@ impl InputChanges {
 	}
 }
 
-pub struct MotorInner {
+struct MotorInner {
 	// Metadata
 	port: AtomicU8,
 	connected: AtomicBool,
 	reversed: AtomicBool,
 	// Sent
-	pub power: AtomicI16,
+	power: AtomicI16,
 	is_velocity: AtomicBool,
 	// Received
 	position: AtomicI32,
@@ -418,7 +418,7 @@ pub struct MotorInner {
 }
 
 #[derive(Clone)]
-pub struct Motor(pub Arc<MotorInner>);
+pub struct Motor(Arc<MotorInner>);
 
 impl Motor {
 	fn new(port: u8) -> Self {

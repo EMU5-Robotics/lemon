@@ -23,6 +23,9 @@ pub struct Loader {
 	load_time: Duration,
 	speed: f32,
 	pos_threshold: u32,
+	pub fold_up: bool,
+	pub hold_load: bool,
+	reset_time: Instant,
 	logger: RerunLogger,
 }
 
@@ -32,19 +35,25 @@ enum LoaderState {
 	Loading,
 	Loaded(Instant),
 	Reseting,
+	Idle,
 }
 
 impl Loader {
 	pub fn new(logger: RerunLogger, motors: [Motor; 2]) -> Self {
 		Self {
 			motors,
-			state: LoaderState::Reseting,
-			primed_pos: 46_000,
-			loaded_pos: 7_500,
+			state: LoaderState::Idle,
+			// primed_pos: 46_000,
+			// loaded_pos: 7_500,
+			primed_pos: 0,
+			loaded_pos: 38_500,
 			hold_time: Duration::from_millis(100),
-			load_time: Duration::from_millis(1000),
+			load_time: Duration::from_millis(250),
 			speed: 0.9,
 			pos_threshold: 1000,
+			fold_up: false,
+			hold_load: false,
+			reset_time: Instant::now(),
 			logger,
 		}
 	}
@@ -62,25 +71,52 @@ impl Loader {
 				self.set_power(1.0);
 				// If we are close the loaded position then transition state
 				let pos = self.get_position();
-				if pos < self.loaded_pos || pos.abs_diff(self.loaded_pos) < self.pos_threshold {
+				if pos > self.loaded_pos || pos.abs_diff(self.loaded_pos) < self.pos_threshold {
 					self.state = LoaderState::Loaded(Instant::now());
 				}
 			}
 			LoaderState::Loaded(at) => {
 				self.set_power(0.0);
-				if Instant::now() > at + self.hold_time {
+				if self.fold_up {
+					self.state = LoaderState::Idle;
+					self.fold_up = false;
+				}
+				if Instant::now() > at + self.hold_time && !self.hold_load {
 					self.state = LoaderState::Reseting;
+					self.reset_time = Instant::now();
 				}
 			}
 			LoaderState::Reseting => {
 				self.set_power(-1.0);
 				// If we are close the primed position then transition state
 				let pos = self.get_position();
-				if pos > self.primed_pos || pos.abs_diff(self.primed_pos) < self.pos_threshold {
+				if pos < self.primed_pos || pos.abs_diff(self.primed_pos) < self.pos_threshold {
 					self.state = LoaderState::Primed(Instant::now());
 				}
 			}
+			LoaderState::Idle => {
+				self.state = LoaderState::Idle;
+			}
 		}
+	}
+
+	pub fn is_ready_to_fire(&self) -> bool {
+		let now = Instant::now();
+		matches!(self.state, LoaderState::Reseting)
+			&& now > self.reset_time + Duration::from_millis(250)
+			&& now < self.reset_time + Duration::from_millis(270)
+	}
+
+	pub fn start_primed(&mut self) {
+		self.state = LoaderState::Primed(Instant::now() - self.load_time);
+	}
+
+	pub fn start_folded(&mut self) {
+		self.state = LoaderState::Primed(Instant::now() - self.load_time);
+	}
+
+	pub fn reset(&mut self) {
+		self.state = LoaderState::Reseting;
 	}
 
 	fn set_power(&mut self, power: f32) {
@@ -95,7 +131,7 @@ impl Loader {
 		let mut count = 0;
 		for motor in &self.motors {
 			if motor.is_connected() {
-				sum += motor.position() * -motor.reversed_factor() as i32;
+				sum += motor.position() * motor.reversed_factor() as i32;
 				count += 1;
 			}
 		}
@@ -205,7 +241,7 @@ impl Catapult {
 
 				// If the current current is noticeably less we have probably stopped meshing, we
 				// now know we are in a toothless section
-				if velocity > avg - 10 && Instant::now() > start + Duration::from_millis(1500) {
+				if velocity > avg - 10 && Instant::now() > start + Duration::from_millis(1000) {
 					state = CatapultCalibrationState::Wait(Instant::now());
 				} else {
 					state = CatapultCalibrationState::Unknown(cursor, last, start);
@@ -243,6 +279,10 @@ impl Catapult {
 		matches!(self.state, CatapultState::Idle)
 	}
 
+	pub fn is_calibrated(&self) -> bool {
+		!matches!(self.state, CatapultState::Calibration(_))
+	}
+
 	pub fn prime(&mut self) {
 		if matches!(self.state, CatapultState::Idle) {
 			self.state = CatapultState::Priming;
@@ -261,6 +301,11 @@ impl Catapult {
 			[0; 10],
 			Instant::now(),
 		));
+		self.cycle = 0;
+	}
+
+	pub fn count(&self) -> usize {
+		self.cycle
 	}
 
 	fn cycle(&self) -> i32 {
