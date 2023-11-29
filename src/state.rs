@@ -285,7 +285,7 @@ impl Network {
 						);
 					rerun::Logger::new(rerun.clone())
 						.with_path_prefix("logs")
-						.with_filter(rerun::default_log_filter())
+						.with_filter("debug")
 						.init()
 						.unwrap();
 					mutex.1 = RerunLogger(program_start, Some(rerun));

@@ -1,4 +1,5 @@
 use std::time::{Duration, Instant};
+use uom::ConstZero;
 
 use bno055::Bno055;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
@@ -10,7 +11,8 @@ const BUFFER_SIZE: usize = 8;
 
 pub struct Imu {
 	raw: Bno055<I2c>,
-	timestamp: Instant,
+	last_update: Instant,
+	last_difference: Angle,
 	previous_values: ConstGenericRingBuffer<AngularVelocity, BUFFER_SIZE>,
 	maybe_spike: Option<AngularVelocity>,
 }
@@ -31,7 +33,8 @@ impl Imu {
 
 		Self {
 			raw,
-			timestamp: Instant::now(),
+			last_update: Instant::now(),
+			last_difference: ConstZero::ZERO,
 			previous_values: ConstGenericRingBuffer::new::<BUFFER_SIZE>(),
 			maybe_spike: None,
 		}
@@ -44,8 +47,39 @@ impl Imu {
 	}
 
 	pub fn angle_difference(&mut self) -> Option<Angle> {
+		let elapsed = self.last_update.elapsed();
+		if elapsed < Duration::from_micros(10_500) {
+			return None;
+		}
+
+		let gyro: AngularVelocity = match self.raw.gyro_data() {
+			Ok(vec) => degree_per_second!(vec.z as f64 * 1.2768221), // the yaw/heading
+			Err(err) => {
+				log::warn!("Failed to get gyro from IMU: {:?}", err);
+				return None;
+			}
+		};
+
+		let diff: Angle = (gyro * second!(elapsed.as_secs_f64())).into();
+
+		// Is an invalid spike, ignore
+		if diff.abs() > degree!(15.0) {
+			return None;
+		}
+
+		// Basic noise floor filter
+		if diff.abs() < degree!(0.007) {
+			self.last_difference = ConstZero::ZERO;
+			self.last_update = Instant::now();
+			None
+		} else {
+			self.last_difference = diff;
+			self.last_update = Instant::now();
+			Some(diff)
+		}
+
 		// don't poll the imu too often or it will shit itself
-		let elapsed = self.timestamp.elapsed();
+		/*let elapsed = self.timestamp.elapsed();
 		if elapsed < Self::MIN_DURATION_BETWEEN_POLLS {
 			return None;
 		}
@@ -63,7 +97,7 @@ impl Imu {
 			return None;
 		}
 
-		Some(ave_angle_diff)
+		Some(ave_angle_diff)*/
 	}
 
 	const MIN_ANGLE_THRESHOLD: f64 = 0.005;
@@ -72,29 +106,23 @@ impl Imu {
 		if !self.previous_values.is_empty()
 			&& !self.within_bounds(&yaw_vel, &self.average_rot_vel())
 		{
-			if let Some(prev_vel) = self.maybe_spike.take() {
-				//gotta nest here even tho it doubles loc cause let chaining is unstable & dont wanna add the feature
-				if self.within_bounds(&yaw_vel, &prev_vel) {
+			match self.maybe_spike.take() {
+				Some(prev_vel) if self.within_bounds(&yaw_vel, &prev_vel) => {
 					//i dont know if it would matter or not to clear the entire buf
 					//if velocity changed that significantly & that relatively const over a
 					//window of ~80ms.
 					//self.previous_values.drain();
 					self.previous_values.push(prev_vel);
-				} else if angle_diff.abs() > degree!(15.0) {
+				}
+				_ if angle_diff.abs() > degree!(15.0) => {
 					log::error!("detected huge spike in angle difference");
 					return None;
-				} else {
+				}
+				_ => {
 					self.maybe_spike = Some(yaw_vel);
 					//might as well try again idk
 					return None;
 				}
-			} else if angle_diff.abs() > degree!(15.0) {
-				log::error!("detected huge spike in angle difference");
-				return None;
-			} else {
-				self.maybe_spike = Some(yaw_vel);
-				//might as well try again idk
-				return None;
 			}
 		}
 		self.previous_values.push(yaw_vel);

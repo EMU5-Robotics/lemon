@@ -63,7 +63,7 @@ impl<P> Robot<P> {
 		let parts = create_parts(&mut state)?;
 		let base = create_drive(&mut state)?;
 
-		let tpid = AnglePid::new(3.5, 1.0, 0.0, degree!(0.0));
+		let tpid = AnglePid::new(2.0, 0.0, 0.0, degree!(0.0));
 
 		state.serial.update_gearboxes();
 
