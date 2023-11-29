@@ -8,6 +8,7 @@ pub mod nop;
 pub mod odomcond;
 pub mod pathseg;
 pub mod powermotors;
+pub mod setvel;
 pub mod turnto;
 
 pub use aux::*;
@@ -15,6 +16,7 @@ pub use nop::*;
 pub use odomcond::*;
 pub use pathseg::*;
 pub use powermotors::*;
+pub use setvel::*;
 pub use turnto::*;
 
 pub struct Path {
@@ -84,7 +86,7 @@ where
 	where
 		Self: 'a,
 	{
-		self.with_timer(Default::default())
+		self.with_timer(Duration::from_secs(100))
 	}
 	fn with_timer<'a>(self, dur: Duration) -> (Box<dyn PathSegment + 'a>, Timer)
 	where
@@ -96,10 +98,11 @@ where
 
 impl Default for Timer {
 	fn default() -> Self {
-		Self::new(Duration::from_secs(10_000))
+		Self::new(Duration::from_secs(100))
 	}
 }
 
+#[derive(Debug)]
 pub struct Timer {
 	start: Instant,
 	duration: Duration,

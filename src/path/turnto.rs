@@ -87,10 +87,10 @@ impl PathSegment for TurnTo {
 			side_vel = side_vel * scale;
 		}
 
-		if (angle + self.offset - self.target).abs() < degree!(5.0) && side_vel.abs().value < 0.01 {
+		if (angle + self.offset - self.target).abs() < degree!(1.0) && side_vel.abs().value < 0.01 {
 			return None;
 		}
-		Some((-side_vel, side_vel))
+		Some((side_vel, -side_vel))
 	}
 	fn end_follow(&mut self) {}
 }
