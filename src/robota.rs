@@ -116,7 +116,7 @@ fn create_drive(state: &mut GlobalState) -> anyhow::Result<Drive> {
 			state.take_motor(11, false),
 		],
 		Gearbox::Blue,
-		0.7,
+		0.55,
 	);
 	state.serial.set_gearboxes(drive.get_gearboxes());
 
