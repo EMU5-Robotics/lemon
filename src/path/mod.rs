@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use crate::{odom::DriveImuOdom, pid::*, units::*};
 use std::time::{Duration, Instant};
 
-pub mod aux;
+mod auxiliary;
 pub mod nop;
 pub mod odomcond;
 pub mod pathseg;
@@ -11,7 +11,7 @@ pub mod powermotors;
 pub mod setvel;
 pub mod turnto;
 
-pub use aux::*;
+pub use auxiliary::*;
 pub use nop::*;
 pub use odomcond::*;
 pub use pathseg::*;
