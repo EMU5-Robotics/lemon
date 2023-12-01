@@ -43,6 +43,13 @@ pub fn main() -> anyhow::Result<()> {
 fn user_control(robot: &mut Robot) {
 	let controller = robot.input.controller;
 
+	if controller.button_pressed(ControllerButtons::UP) {
+		robot.base.reversed = false;
+	}
+	if controller.button_pressed(ControllerButtons::DOWN) {
+		robot.base.reversed = true;
+	}
+
 	let axes = controller.axes_as_f32();
 	let d_power = axes[1];
 	let t_power = axes[2];

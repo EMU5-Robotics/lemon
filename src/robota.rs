@@ -47,12 +47,14 @@ fn user_control(robot: &mut Robot) {
 		ControllerButtons::R2,
 		ControllerButtons::R1,
 		&robot.parts.hang[..],
+        controller
 	);
 	lemon::move_voltage(
 		12_000,
 		ControllerButtons::L1,
 		ControllerButtons::L2,
-		&[robot.parts.flipper],
+		&[robot.parts.flipper.clone()],
+        controller
 	)
 }
 
@@ -78,7 +80,7 @@ fn auton(robot: &mut Robot) {
 	robot.path = Some(path);
 }
 
-fn auton_path(drive: &Drive, flipper: Motor, hang: [Motor; 2]) -> Path {
+fn auton_path(drive: &Drive, flipper: Motor) -> Path {
 	let open_net = PowerMotors::new(vec![12000], vec![flipper.clone()]).default_timer();
 	let drive_forward =
 		SetVel::new((meter_per_second!(1.0), meter_per_second!(1.0))).default_timer();
