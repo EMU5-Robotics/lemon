@@ -13,7 +13,7 @@ use crate::{
 	odom::DriveImuOdom,
 	parts::drive::Drive,
 	pid::AnglePid,
-	state::{GlobalState, InputState},
+	state::{FieldControlState, GlobalState, InputState},
 	units::*,
 };
 
@@ -96,6 +96,13 @@ impl<P> Robot<P> {
 
 			/*** Process inputs to parts ***/
 			self.odom.update(&mut self.base);
+
+			match self.input.fcs_state() {
+				FieldControlState::Joined => {}
+				FieldControlState::Left => {}
+				FieldControlState::Connected => {}
+				FieldControlState::Disconnected => {}
+			}
 
 			match self.competition {
 				CompetitionState::Disabled => (self.disabled)(&mut self),

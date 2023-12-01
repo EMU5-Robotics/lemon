@@ -24,6 +24,7 @@ pub struct Loader {
 	speed: f32,
 	pos_threshold: u32,
 	pub fold_up: bool,
+	pub fold_out: bool,
 	pub hold_load: bool,
 	reset_time: Instant,
 	logger: RerunLogger,
@@ -38,6 +39,13 @@ enum LoaderState {
 	Idle,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoaderPosState {
+	Primed,
+	Folded,
+	Other,
+}
+
 impl Loader {
 	pub fn new(logger: RerunLogger, motors: [Motor; 2]) -> Self {
 		Self {
@@ -48,10 +56,11 @@ impl Loader {
 			primed_pos: 0,
 			loaded_pos: 38_500,
 			hold_time: Duration::from_millis(100),
-			load_time: Duration::from_millis(250),
-			speed: 0.9,
+			load_time: Duration::from_millis(1000),
+			speed: 0.5,
 			pos_threshold: 1000,
 			fold_up: false,
+			fold_out: false,
 			hold_load: false,
 			reset_time: Instant::now(),
 			logger,
@@ -91,11 +100,16 @@ impl Loader {
 				// If we are close the primed position then transition state
 				let pos = self.get_position();
 				if pos < self.primed_pos || pos.abs_diff(self.primed_pos) < self.pos_threshold {
-					self.state = LoaderState::Primed(Instant::now());
+					if self.fold_out {
+						self.state = LoaderState::Idle;
+						self.fold_out = false;
+					} else {
+						self.state = LoaderState::Primed(Instant::now());
+					}
 				}
 			}
 			LoaderState::Idle => {
-				self.state = LoaderState::Idle;
+				self.set_power(0.0);
 			}
 		}
 	}
@@ -112,11 +126,22 @@ impl Loader {
 	}
 
 	pub fn start_folded(&mut self) {
-		self.state = LoaderState::Primed(Instant::now() - self.load_time);
+		self.state = LoaderState::Loaded(Instant::now() - self.load_time);
 	}
 
 	pub fn reset(&mut self) {
 		self.state = LoaderState::Reseting;
+	}
+
+	pub fn state_pos(&self) -> LoaderPosState {
+		let pos = self.get_position();
+		if pos < self.primed_pos || pos.abs_diff(self.primed_pos) < 2000 {
+			LoaderPosState::Primed
+		} else if pos > self.loaded_pos || pos.abs_diff(self.loaded_pos) < 2000 {
+			LoaderPosState::Folded
+		} else {
+			LoaderPosState::Other
+		}
 	}
 
 	fn set_power(&mut self, power: f32) {
@@ -190,6 +215,7 @@ impl Catapult {
 			prime_timeout: Duration::from_secs(2),
 			prime_power: 0.2,
 			prime_dist: 125_000,
+			// prime_dist: 125_000,
 			quat_dist: 135_000,
 			cycle: 0,
 			start_pos: None,

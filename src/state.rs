@@ -217,6 +217,35 @@ impl InputState {
 			return crate::CompetitionState::UserControl;
 		}
 	}
+
+	pub fn fcs_state(&self) -> FieldControlState {
+		let this = self
+			.v5_status
+			.1
+			.state
+			.intersection(CompetitionState::CONNECTED)
+			.bits() != 0;
+		let that = self
+			.v5_status_last
+			.1
+			.state
+			.intersection(CompetitionState::CONNECTED)
+			.bits() != 0;
+
+		match (that, this) {
+			(false, true) => FieldControlState::Joined,
+			(true, false) => FieldControlState::Left,
+			(true, true) => FieldControlState::Connected,
+			(false, false) => FieldControlState::Disconnected,
+		}
+	}
+}
+
+pub enum FieldControlState {
+	Joined,
+	Left,
+	Connected,
+	Disconnected,
 }
 
 struct NetworkInner {
