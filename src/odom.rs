@@ -19,7 +19,7 @@ pub struct DriveImuOdom {
 	log_update: Instant,
 	update: Instant,
 
-	imu: Imu,
+	imu: Option<Imu>,
 	logger: RerunLogger,
 }
 
@@ -56,7 +56,11 @@ impl DriveImuOdom {
 
 		// calculate displacement and change in angle for center of the robot
 		let diff_dist = 0.5 * (diff_l + diff_r);
-		let diff_angle = self.imu.angle_difference().unwrap_or(degree!(0.0));
+		// let diff_angle = self.imu.angle_difference().unwrap_or(degree!(0.0));
+		let diff_angle = match &mut self.imu {
+			Some(ref mut imu) => imu.angle_difference().unwrap_or(degree!(0.0)),
+			None => degree!(0.0),
+		};
 
 		// calculate displacement in global space
 		let tmp = self.angle + 0.5 * diff_angle;

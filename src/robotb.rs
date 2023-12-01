@@ -44,11 +44,9 @@ fn user_control(robot: &mut Robot) {
 	let controller = robot.input.controller;
 
 	let axes = controller.axes_as_f32();
-	let l_power = axes[1];
-	let r_power = axes[3];
-	// let scale = ((l_power.abs() + r_power.abs()) / 2.0).powf(2.0);
-	let scale = 0.5;
-	robot.base.drive_skid(scale * l_power, scale * r_power);
+	let d_power = axes[1];
+	let t_power = axes[2];
+	robot.base.drive(d_power, t_power);
 
 	if controller.button_pressed(ControllerButtons::A) {
 		if robot.catapult.is_primed() {
@@ -59,11 +57,32 @@ fn user_control(robot: &mut Robot) {
 	}
 	robot.catapult.transition();
 
-	// if robot.parts.first_run == false {
-	// 	robot.parts.loader.start_primed();
-	// 	robot.parts.first_run = true;
-	// }
-	// robot.parts.loader.transition();
+	if controller.button_pressed(ControllerButtons::Y) {
+		match robot.parts.loader.state_pos() {
+			LoaderPosState::Primed => {
+				robot.parts.loader.start_primed();
+				robot.parts.loader.fold_out = true;
+			}
+			LoaderPosState::Folded => {
+				robot.parts.loader.start_folded();
+				robot.parts.loader.fold_out = true;
+			}
+			LoaderPosState::Other => {
+				robot.parts.loader.reset();
+				robot.parts.loader.fold_out = true;
+			}
+		}
+	}
+	if controller.button_pressed(ControllerButtons::X) {
+		match robot.parts.loader.state_pos() {
+			LoaderPosState::Primed | LoaderPosState::Other => {
+				robot.parts.loader.start_primed();
+				robot.parts.loader.fold_up = true;
+			}
+			_ => {}
+		}
+	}
+	robot.parts.loader.transition();
 }
 
 fn auton(robot: &mut Robot) {
@@ -125,7 +144,9 @@ fn auton(robot: &mut Robot) {
 			}
 		}
 		CatapultAutonState::Stopped => {
-			loader.fold_up = true;
+			loader.hold_load = false;
+			loader.transition();
+			loader.fold_out = true;
 			loader.transition();
 			catapult.transition();
 		}
@@ -165,17 +186,17 @@ fn create_drive(state: &mut GlobalState) -> anyhow::Result<Drive> {
 	let drive = Drive::new(
 		state.network.rerun_logger(),
 		[
-			state.take_motor(5, true),
-			state.take_motor(7, true),
-			state.take_motor(18, true),
+			state.take_motor(5, false),
+			state.take_motor(7, false),
+			state.take_motor(18, false),
 		],
 		[
-			state.take_motor(15, false),
-			state.take_motor(16, false),
-			state.take_motor(17, false),
+			state.take_motor(15, true),
+			state.take_motor(16, true),
+			state.take_motor(17, true),
 		],
 		Gearbox::Blue,
-		0.8,
+		0.6,
 	);
 	state.serial.set_gearboxes(drive.get_gearboxes());
 

@@ -21,23 +21,23 @@ impl Imu {
 	const MIN_DURATION_BETWEEN_POLLS: Duration = Duration::from_micros(10_500);
 	const RANDOM_CONST: f64 = 1.2768221; //FIXME: idk what this does, im leaving it for now
 
-	pub fn new() -> Self {
+	pub fn new() -> Option<Self> {
 		use bno055::BNO055OperationMode as OperationMode;
 		use rppal::hal::Delay;
 
-		let i2c = I2c::new().expect("couldnt get imu");
+		let i2c = I2c::new().ok()?;
 		let mut delay = Delay::new();
 		let mut raw = Bno055::new(i2c).with_alternative_address();
-		raw.set_mode(OperationMode::GYRO_ONLY, &mut delay).unwrap();
-		raw.set_external_crystal(true, &mut delay).unwrap();
+		raw.set_mode(OperationMode::GYRO_ONLY, &mut delay).ok()?;
+		raw.set_external_crystal(true, &mut delay).ok()?;
 
-		Self {
+		Some(Self {
 			raw,
 			last_update: Instant::now(),
 			last_difference: ConstZero::ZERO,
 			previous_values: ConstGenericRingBuffer::new::<BUFFER_SIZE>(),
 			maybe_spike: None,
-		}
+		})
 	}
 
 	fn yaw_vel(&mut self) -> Option<AngularVelocity> {
