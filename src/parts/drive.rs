@@ -39,7 +39,7 @@ impl Drive {
 			last_encoder: (meter!(0.0), meter!(0.0)),
 			last_update: Instant::now(),
 			gearbox,
-            reversed: false,
+			reversed: false,
 			logger,
 		}
 	}

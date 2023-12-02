@@ -13,7 +13,7 @@ use crate::{
 	odom::DriveImuOdom,
 	parts::drive::Drive,
 	pid::AnglePid,
-	state::{InputChanges, FieldControlState, Motor, ControllerButtons, GlobalState, InputState},
+	state::{ControllerButtons, FieldControlState, GlobalState, InputChanges, InputState, Motor},
 	units::*,
 };
 
@@ -138,7 +138,7 @@ pub fn move_voltage(
 	down: ControllerButtons,
 	up: ControllerButtons,
 	motors: &[Motor],
-    controller: InputChanges
+	controller: InputChanges,
 ) {
 	let voltage = if controller.button_held(down) {
 		-voltage

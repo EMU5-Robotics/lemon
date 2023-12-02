@@ -47,14 +47,14 @@ fn user_control(robot: &mut Robot) {
 		ControllerButtons::R2,
 		ControllerButtons::R1,
 		&robot.parts.hang[..],
-        controller
+		controller,
 	);
 	lemon::move_voltage(
 		12_000,
 		ControllerButtons::L1,
 		ControllerButtons::L2,
 		&[robot.parts.flipper.clone()],
-        controller
+		controller,
 	)
 }
 
@@ -125,17 +125,17 @@ fn create_drive(state: &mut GlobalState) -> anyhow::Result<Drive> {
 	let drive = Drive::new(
 		state.network.rerun_logger(),
 		[
-			state.take_motor(17, false),
-			state.take_motor(12, false),
-			state.take_motor(11, false),
-		],
-		[
 			state.take_motor(16, true),
 			state.take_motor(15, true),
 			state.take_motor(14, true),
 		],
+		[
+			state.take_motor(17, false),
+			state.take_motor(12, false),
+			state.take_motor(11, false),
+		],
 		Gearbox::Blue,
-		0.55,
+		0.4,
 	);
 	state.serial.set_gearboxes(drive.get_gearboxes());
 
