@@ -12,22 +12,13 @@ name = "robotb"
 path = "src/robotb.rs"
 
 [dependencies]
-client = { path = "../transport/client", features = ["coprocessor"] }
-common = { path = "../transport/common" }
-protocol = { path = "../transport/vex/protocol" }
+client = { git = "ssh://git@github.com/EMU5-Robotics/transport", rev = "cab298a55192cf496576b127a459629c3666e4d4", features = ["coprocessor"] }
+common = { git = "ssh://git@github.com/EMU5-Robotics/transport", rev = "cab298a55192cf496576b127a459629c3666e4d4" }
+protocol = { git = "ssh://git@github.com/EMU5-Robotics/transport", rev = "cab298a55192cf496576b127a459629c3666e4d4" }
+communication = { git = "ssh://git@github.com/EMU5-Robotics/communication", rev = "a638833372fc62e423bff4708eafbde942872b66" }
 
-robot_algorithms = { git = "https://github.com/nonl4331/robot-algorithms" }
-
-uom = "0.35"
-log = "0.4"
-dotenvy = "0.15"
 anyhow = "1.0"
-ringbuffer = "0.15"
-
-bno055 = { version = "0.3.3", features = ["std"] }
-embedded-hal = { version = "0.2.7", features = ["unproven"] }
-rerun = { version = "0.10.1", default_features = false, features = ["log", "sdk"] }
-rppal = { version = "0.14.1", features = ["hal-unproven"] }
+log = "0.4"
 
 [profile.dev]
 strip = "debuginfo"
