@@ -107,7 +107,6 @@ impl Brain {
 	) -> bool {
 		if let Some(data_pkt) = self.serial.take_status_pkt() {
 			self.read_motors(&data_pkt.1);
-
 			self.pkt_buffer[1] = data_pkt.into();
 			self.pkt_buffer.swap(0, 1);
 			self.last_update = Instant::now();
@@ -131,13 +130,16 @@ impl Brain {
 
 		for motor in &self.motors {
 			let port = motor.port() as usize;
+			if !motor.is_connected() {
+				continue;
+			}
 			match motor.target() {
 				motor::Target::Voltage(v) => ctrl_pkt.set_power(port, v, false),
 				motor::Target::PercentVoltage(v) => {
 					ctrl_pkt.set_power(port, (v * motor::MAX_MILLIVOLT as f64) as i16, false);
 				}
 				motor::Target::RotationalVelocity(v) => ctrl_pkt.set_power(port, v, true),
-				motor::Target::None => {}
+				motor::Target::None => ctrl_pkt.set_power(port, 0, false),
 			}
 		}
 
@@ -152,7 +154,7 @@ impl Brain {
 	}
 	pub fn get_motor(&self, port: u8) -> Motor {
 		assert!((1..=20).contains(&port));
-		self.motors[port as usize].clone()
+		self.motors[port as usize - 1].clone()
 	}
 }
 

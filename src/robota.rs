@@ -13,8 +13,10 @@ use drivebase::Tankdrive;
 
 use std::time::Duration;
 
+use crate::motor::Motor;
+
 const IS_SKILLS: bool = false;
-pub const BRAIN_TIMEOUT: Duration = Duration::from_millis(20);
+pub const BRAIN_TIMEOUT: Duration = Duration::from_millis(500);
 
 fn main() -> ! {
 	Robot::run();
@@ -93,7 +95,7 @@ struct Robot {
 	state: RobotState,
 	brain: Brain,
 	controller: Controller,
-	drivebase: Tankdrive<0>,
+	drivebase: Tankdrive<3>,
 	mediator: Mediator,
 }
 
@@ -111,7 +113,18 @@ impl Robot {
 		log::info!("Connected to the brain.");
 
 		// TODO: change to actual robot config
-		let drivebase = Tankdrive::new([], []);
+		let drivebase = Tankdrive::new(
+			[
+				(brain.get_motor(11), false),
+				(brain.get_motor(12), false),
+				(brain.get_motor(17), false),
+			],
+			[
+				(brain.get_motor(14), true),
+				(brain.get_motor(15), true),
+				(brain.get_motor(16), true),
+			],
+		);
 
 		Self {
 			state: RobotState::default(),

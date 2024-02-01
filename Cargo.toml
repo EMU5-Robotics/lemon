@@ -15,7 +15,7 @@ path = "src/robotb.rs"
 client = { git = "ssh://git@github.com/EMU5-Robotics/transport", rev = "cab298a55192cf496576b127a459629c3666e4d4", features = ["coprocessor"] }
 common = { git = "ssh://git@github.com/EMU5-Robotics/transport", rev = "cab298a55192cf496576b127a459629c3666e4d4" }
 protocol = { git = "ssh://git@github.com/EMU5-Robotics/transport", rev = "cab298a55192cf496576b127a459629c3666e4d4" }
-communication = { git = "ssh://git@github.com/EMU5-Robotics/communication", rev = "a638833372fc62e423bff4708eafbde942872b66" }
+communication = { git = "ssh://git@github.com/EMU5-Robotics/communication", rev = "27baccfe487d7280885e087b794e1d47a64c3653" }
 
 anyhow = "1.0"
 log = "0.4"
