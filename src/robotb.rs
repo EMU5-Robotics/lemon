@@ -1,3 +1,1 @@
-fn main() -> anyhow::Result<()> {
-	Ok(())
-}
+fn main() {}

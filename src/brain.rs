@@ -90,7 +90,7 @@ impl Brain {
 				pkt_buffer: pkt_buffer.clone(),
 				last_update: Instant::now(),
 				motors: (1..=20)
-					.map(Motor::from_port)
+					.map(|port| unsafe { Motor::from_port(port) })
 					.collect::<Vec<_>>()
 					.try_into()
 					.unwrap(),
@@ -152,6 +152,8 @@ impl Brain {
 			}
 		}
 	}
+	// This should be the only fatal failure point of the robot
+	// use get_motor with care (should we make this unsafe?)
 	pub fn get_motor(&self, port: u8) -> Motor {
 		assert!((1..=20).contains(&port));
 		self.motors[port as usize - 1].clone()

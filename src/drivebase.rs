@@ -1,4 +1,7 @@
-use crate::motor::{self, Motor};
+use crate::{
+	brain::Brain,
+	motor::{self, Motor},
+};
 
 pub struct Tankdrive<const SIDE_N: usize> {
 	left: [(Motor, bool); SIDE_N],
@@ -6,8 +9,12 @@ pub struct Tankdrive<const SIDE_N: usize> {
 }
 
 impl<const SIDE_N: usize> Tankdrive<SIDE_N> {
-	pub fn new(left: [(Motor, bool); SIDE_N], right: [(Motor, bool); SIDE_N]) -> Self {
-		Self { left, right }
+	pub fn new(left: [(u8, bool); SIDE_N], right: [(u8, bool); SIDE_N], brain: &Brain) -> Self {
+		let to_motor_array = |v: [(u8, bool); SIDE_N]| v.map(|e| (brain.get_motor(e.0), e.1));
+		Self {
+			left: to_motor_array(left),
+			right: to_motor_array(right),
+		}
 	}
 	pub fn set_side_percent_voltage(&mut self, left: f64, right: f64) {
 		if left.abs() > 1.0 || right.abs() > 1.0 {

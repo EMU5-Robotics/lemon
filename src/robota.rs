@@ -13,8 +13,6 @@ use drivebase::Tankdrive;
 
 use std::time::Duration;
 
-use crate::motor::Motor;
-
 const IS_SKILLS: bool = false;
 pub const BRAIN_TIMEOUT: Duration = Duration::from_millis(500);
 
@@ -112,18 +110,11 @@ impl Robot {
 		let (brain, controller) = Brain::init();
 		log::info!("Connected to the brain.");
 
-		// TODO: change to actual robot config
+		// this is the drivetrain configuration for the nationals hang robot
 		let drivebase = Tankdrive::new(
-			[
-				(brain.get_motor(11), false),
-				(brain.get_motor(12), false),
-				(brain.get_motor(17), false),
-			],
-			[
-				(brain.get_motor(14), true),
-				(brain.get_motor(15), true),
-				(brain.get_motor(16), true),
-			],
+			[(11, false), (12, false), (17, false)],
+			[(14, true), (15, true), (16, true)],
+			&brain,
 		);
 
 		Self {
