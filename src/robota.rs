@@ -1,19 +1,22 @@
+mod bmi088;
 mod brain;
 mod controller;
 mod drivebase;
 mod motor;
+mod odom;
 
+use bmi088::Bmi088;
 use brain::Brain;
 use communication::{
 	packet::{FromMediator, ToMediator},
-	Mediator,
+	plot, Mediator,
 };
 use controller::Controller;
 use drivebase::Tankdrive;
 
 use std::time::Duration;
 
-const IS_SKILLS: bool = false;
+const IS_SKILLS: bool = true;
 pub const BRAIN_TIMEOUT: Duration = Duration::from_millis(500);
 
 fn main() -> ! {
@@ -37,7 +40,7 @@ impl Default for RobotState {
 }
 
 impl RobotState {
-	pub fn progress(&mut self, brain_state: brain::State) {
+	pub fn progress(&mut self, brain_state: brain::State, imu: &mut Bmi088) {
 		*self = match (*self, brain_state, IS_SKILLS) {
 			(Self::Off, brain::State::Disabled, _) => {
 				log::info!("Connection established with the brain.");
@@ -68,7 +71,6 @@ impl RobotState {
 				if *self != Self::DriverSkills {
 					log::info!("Entering DriverSkills state.");
 				}
-				log::info!("Entering DriverSkills state.");
 				Self::DriverSkills
 			}
 			(_, brain::State::Auton, false) => {
@@ -79,12 +81,16 @@ impl RobotState {
 			}
 			(_, brain::State::Auton, true) => {
 				if *self != Self::AutonSkills {
+					imu.reset();
 					log::info!("Entering AutonSkills state.");
 				}
-				log::info!("Entering AutonSkills state.");
 				Self::AutonSkills
 			}
-			(_, _, _) => todo!(),
+			(Self::Disabled, brain::State::Disabled, _) => Self::Disabled,
+			(a, b, c) => {
+				log::info!("tried: {a:?} | {b:?} | {c:?}");
+				todo!()
+			}
 		};
 	}
 }
@@ -95,6 +101,7 @@ struct Robot {
 	controller: Controller,
 	drivebase: Tankdrive<3>,
 	mediator: Mediator,
+	imu: Bmi088,
 }
 
 // merge or move these functions?
@@ -107,6 +114,7 @@ impl Robot {
 		let mediator = communication::Logger::init().expect("This only panics when another logger is set. This should never be the case and indicates a problem with the code.");
 
 		// block until connection is establish with brain
+		log::info!("Connecting to the brain.");
 		let (brain, controller) = Brain::init();
 		log::info!("Connected to the brain.");
 
@@ -117,12 +125,15 @@ impl Robot {
 			&brain,
 		);
 
+		let imu = Bmi088::new();
+
 		Self {
 			state: RobotState::default(),
 			brain,
 			controller,
 			drivebase,
 			mediator,
+			imu,
 		}
 	}
 	pub fn handle_events(&mut self) {
@@ -134,6 +145,7 @@ impl Robot {
 							eprintln!("Failed to send Pong event: {e}");
 						}
 					}
+					_ => {}
 				}
 			}
 		}
@@ -144,17 +156,29 @@ impl Robot {
 
 			// updates controller, robot state & motors
 			self.brain
-				.update_state(&mut self.controller, &mut self.state);
+				.update_state(&mut self.controller, &mut self.state, &mut self.imu);
 
 			match self.state {
 				RobotState::Off | RobotState::Disabled => {}
-				RobotState::AutonSkills => {}
+				RobotState::AutonSkills => {
+					auton_skills(&mut self.brain, &mut self.imu, &mut self.drivebase)
+				}
 				RobotState::DriverAuton => {}
 				RobotState::DriverSkills => {
-					driver(&mut self.brain, &self.controller, &mut self.drivebase);
+					driver(
+						&mut self.brain,
+						&self.controller,
+						&mut self.drivebase,
+						&mut self.imu,
+					);
 				}
 				RobotState::DriverDriver => {
-					driver(&mut self.brain, &self.controller, &mut self.drivebase);
+					driver(
+						&mut self.brain,
+						&self.controller,
+						&mut self.drivebase,
+						&mut self.imu,
+					);
 				}
 			}
 		}
@@ -163,11 +187,18 @@ impl Robot {
 
 const TURN_MULTIPLIER: f64 = 0.5;
 
-fn driver<const N: usize>(
+fn driver(
 	brain: &mut Brain,
 	controller: &Controller,
-	drivebase: &mut Tankdrive<N>,
+	drivebase: &mut Tankdrive<3>,
+	imu: &mut Bmi088,
 ) {
+	std::thread::sleep(std::time::Duration::from_millis(1));
+	let mut thread_rng = rand::thread_rng();
+	use rand::Rng;
+	if thread_rng.gen::<f64>() < 1.0 {
+		plot!("heading", imu.heading());
+	}
 	let forward_rate = controller.ly();
 	let turning_rate = controller.rx();
 	let (l, r) = (
@@ -178,4 +209,8 @@ fn driver<const N: usize>(
 	drivebase.set_side_percent_voltage(l, r);
 
 	brain.write_changes();
+}
+
+fn auton_skills(brain: &mut Brain, imu: &mut Bmi088, drivebase: &mut Tankdrive<3>) {
+	std::thread::sleep(std::time::Duration::from_millis(1));
 }
