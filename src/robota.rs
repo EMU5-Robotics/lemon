@@ -19,6 +19,8 @@ use std::time::Duration;
 const IS_SKILLS: bool = true;
 pub const BRAIN_TIMEOUT: Duration = Duration::from_millis(500);
 
+const IMU_BIAS: f64 = 0.0;
+
 fn main() -> ! {
 	Robot::run();
 }
@@ -111,7 +113,7 @@ impl Robot {
 		robot.main_loop();
 	}
 	pub fn new() -> Self {
-		let mediator = communication::Logger::init().expect("This only panics when another logger is set. This should never be the case and indicates a problem with the code.");
+		let mediator = communication::Logger::init(true).expect("This only panics when another logger is set. This should never be the case and indicates a problem with the code.");
 
 		// block until connection is establish with brain
 		log::info!("Connecting to the brain.");
@@ -125,7 +127,7 @@ impl Robot {
 			&brain,
 		);
 
-		let imu = Bmi088::new();
+		let imu = Bmi088::new(IMU_BIAS);
 
 		Self {
 			state: RobotState::default(),
