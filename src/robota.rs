@@ -4,6 +4,7 @@ mod controller;
 mod drivebase;
 mod motor;
 mod odom;
+mod pid;
 
 use brain::Brain;
 use communication::{
@@ -204,6 +205,7 @@ fn driver(
 		plot!("heading", odom.heading());
 		communication::odom(odom.position(), odom.heading());
 	}*/
+	plot!("velocities", odom.side_velocities());
 	communication::odom(odom.position(), odom.heading());
 	let forward_rate = controller.ly();
 	let turning_rate = controller.rx();

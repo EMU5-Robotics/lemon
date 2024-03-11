@@ -1,6 +1,7 @@
 use crate::bmi088::Bmi088;
 use amt22::Amt22;
 use rppal::spi::Spi;
+use std::time::Instant;
 
 const LEFT_DIST: f64 = 0.05;
 const RIGHT_DIST: f64 = 0.05;
@@ -83,6 +84,10 @@ pub struct Odometry {
 	imu: Bmi088,
 	tracking_wheels: TrackingWheels,
 	position: [f64; 2],
+	velocities: [[f64; 2]; 5],
+	index: usize,
+	last_update: Instant,
+	first_update: bool,
 }
 
 impl Odometry {
@@ -93,6 +98,10 @@ impl Odometry {
 			imu,
 			tracking_wheels: TrackingWheels::new(),
 			position: [0.0; 2],
+			velocities: [[0.0; 2]; 5],
+			index: 0,
+			last_update: Instant::now(),
+			first_update: true,
 		}
 	}
 	pub fn calc_position(&mut self) {
@@ -113,6 +122,20 @@ impl Odometry {
 		let diff_heading = heading - last_heading;
 		let [diff_left, diff_right, diff_back] =
 			[left - last_left, right - last_right, back - last_back];
+
+		// velocities
+		let last_update = self.last_update;
+		self.last_update = Instant::now();
+		if !self.first_update {
+			let dur = self.last_update.duration_since(last_update).as_secs_f64();
+			self.velocities[self.index] = [diff_left / dur, diff_right / dur];
+			self.velocities.sort_by(|a, b| {
+				f64::total_cmp(&(a[0] * a[0] + a[1] * a[1]), &(b[0] * b[0] + b[1] * b[1]))
+			});
+			self.index = (self.index + 1) % 5;
+		} else {
+			self.first_update = false;
+		}
 
 		let (diff_x, diff_y);
 		let (sin, cos) = heading.sin_cos();
@@ -146,6 +169,9 @@ impl Odometry {
 	}
 	pub fn heading(&self) -> f64 {
 		self.imu.heading()
+	}
+	pub fn side_velocities(&self) -> [f64; 2] {
+		self.velocities[2]
 	}
 	pub fn reset(&mut self) {
 		self.imu.reset()
