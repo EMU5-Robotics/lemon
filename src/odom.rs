@@ -84,7 +84,7 @@ pub struct Odometry {
 	imu: Bmi088,
 	tracking_wheels: TrackingWheels,
 	position: [f64; 2],
-	velocities: [[f64; 2]; 5],
+	velocities: [[f64; 2]; 10],
 	index: usize,
 	last_update: Instant,
 	first_update: bool,
@@ -98,7 +98,7 @@ impl Odometry {
 			imu,
 			tracking_wheels: TrackingWheels::new(),
 			position: [0.0; 2],
-			velocities: [[0.0; 2]; 5],
+			velocities: [[0.0; 2]; 10],
 			index: 0,
 			last_update: Instant::now(),
 			first_update: true,
@@ -132,7 +132,7 @@ impl Odometry {
 			self.velocities.sort_by(|a, b| {
 				f64::total_cmp(&(a[0] * a[0] + a[1] * a[1]), &(b[0] * b[0] + b[1] * b[1]))
 			});
-			self.index = (self.index + 1) % 5;
+			self.index = (self.index + 1) % 10;
 		} else {
 			self.first_update = false;
 		}
@@ -171,7 +171,26 @@ impl Odometry {
 		self.imu.heading()
 	}
 	pub fn side_velocities(&self) -> [f64; 2] {
-		self.velocities[2]
+		[
+			(self.velocities[0][0]
+				+ self.velocities[1][0]
+				+ self.velocities[2][0]
+				+ self.velocities[3][0]
+				+ self.velocities[4][0]
+				+ self.velocities[5][0]
+				+ self.velocities[6][0]
+				+ self.velocities[7][0])
+				* 0.125,
+			(self.velocities[0][1]
+				+ self.velocities[1][1]
+				+ self.velocities[2][1]
+				+ self.velocities[3][1]
+				+ self.velocities[4][1]
+				+ self.velocities[5][1]
+				+ self.velocities[6][1]
+				+ self.velocities[7][1])
+				* 0.125,
+		]
 	}
 	pub fn reset(&mut self) {
 		self.imu.reset()

@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-pub struct PID {
+pub struct Pid {
 	kp: f64,
 	ki: f64,
 	kd: f64,
@@ -11,7 +11,7 @@ pub struct PID {
 	first_update: bool,
 }
 
-impl PID {
+impl Pid {
 	pub fn new(kp: f64, ki: f64, kd: f64) -> Self {
 		Self {
 			kp,
@@ -34,9 +34,9 @@ impl PID {
 		let error = self.target - pv;
 		// clegg integration (avoid integral windup)
 		// see (wikipedia.org/wiki/Integral_windup)
-		if self.last_error.signum() != error.signum() {
+		/*if self.last_error.signum() != error.signum() {
 			self.ki_integral = 0.0;
-		}
+		}*/
 
 		// bumpless operation see (wikipedia.org/wiki/Proportional-integral-derivative_controller#Bumpless_operation)
 		self.ki_integral += self.ki * error * diff_t;
@@ -47,5 +47,8 @@ impl PID {
 		self.last_update = now;
 
 		output
+	}
+	pub fn reset(&mut self) {
+		self.first_update = true;
 	}
 }

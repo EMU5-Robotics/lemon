@@ -14,8 +14,10 @@ use communication::{
 use controller::Controller;
 use drivebase::Tankdrive;
 use odom::Odometry;
+use pid::Pid;
+use protocol::device::ControllerButtons;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::bmi088::ROBOT_A_IMU_BIAS;
 
@@ -107,6 +109,9 @@ struct Robot {
 	drivebase: Tankdrive<3>,
 	mediator: Mediator,
 	odom: Odometry,
+	start: Instant,
+	pid_l: Pid,
+	pid_r: Pid,
 }
 
 // merge or move these functions?
@@ -139,6 +144,9 @@ impl Robot {
 			drivebase,
 			mediator,
 			odom,
+			start: Instant::now(),
+			pid_l: Pid::new(2.0, 0.5, 0.0),
+			pid_r: Pid::new(2.0, 0.5, 0.0),
 		}
 	}
 	pub fn handle_events(&mut self) {
@@ -165,60 +173,53 @@ impl Robot {
 
 			match self.state {
 				RobotState::Off | RobotState::Disabled => {}
-				RobotState::AutonSkills => {
-					auton_skills(&mut self.brain, &mut self.odom, &mut self.drivebase)
-				}
+				RobotState::AutonSkills => self.auton_skills(),
 				RobotState::DriverAuton => {}
 				RobotState::DriverSkills => {
-					driver(
-						&mut self.brain,
-						&self.controller,
-						&mut self.drivebase,
-						&mut self.odom,
-					);
+					self.driver();
 				}
 				RobotState::DriverDriver => {
-					driver(
-						&mut self.brain,
-						&self.controller,
-						&mut self.drivebase,
-						&mut self.odom,
-					);
+					self.driver();
 				}
 			}
 		}
 	}
+	fn driver(&mut self) {
+		let velocities = self.odom.side_velocities();
+		plot!("velocities", velocities);
+
+		communication::odom(self.odom.position(), self.odom.heading());
+		let forward_rate = self.controller.ly();
+		let turning_rate = self.controller.rx();
+		let (mut l, mut r) = (
+			(forward_rate + turning_rate * TURN_MULTIPLIER).clamp(-1.0, 1.0),
+			(forward_rate - turning_rate * TURN_MULTIPLIER).clamp(-1.0, 1.0),
+		);
+		if self.controller.pressed(ControllerButtons::A) {
+			self.pid_l.set_target(0.2);
+			self.pid_r.set_target(0.2);
+			self.pid_l.reset();
+			self.pid_r.reset();
+		}
+		if self.controller.held(ControllerButtons::A) {
+			l = self.pid_l.poll(velocities[0]).clamp(-1.0, 1.0);
+			r = self.pid_r.poll(velocities[1]).clamp(-1.0, 1.0);
+			plot!("pid values", [l, r]);
+			plot!("errors", [0.2 - velocities[0], 0.2 - velocities[1]]);
+		}
+
+		self.drivebase.set_side_percent_voltage(l, r);
+
+		self.brain.write_changes();
+		std::thread::sleep(std::time::Duration::from_millis(1));
+	}
+
+	fn auton_skills(&mut self) {
+		communication::odom(self.odom.position(), self.odom.heading());
+
+		self.brain.write_changes();
+		std::thread::sleep(std::time::Duration::from_millis(1));
+	}
 }
 
 const TURN_MULTIPLIER: f64 = 0.5;
-
-fn driver(
-	brain: &mut Brain,
-	controller: &Controller,
-	drivebase: &mut Tankdrive<3>,
-	odom: &mut Odometry,
-) {
-	std::thread::sleep(std::time::Duration::from_millis(1));
-	let mut thread_rng = rand::thread_rng();
-	use rand::Rng;
-	/*if thread_rng.gen::<f64>() < 1.0 {
-		plot!("heading", odom.heading());
-		communication::odom(odom.position(), odom.heading());
-	}*/
-	plot!("velocities", odom.side_velocities());
-	communication::odom(odom.position(), odom.heading());
-	let forward_rate = controller.ly();
-	let turning_rate = controller.rx();
-	let (l, r) = (
-		(forward_rate + turning_rate * TURN_MULTIPLIER).clamp(-1.0, 1.0),
-		(forward_rate - turning_rate * TURN_MULTIPLIER).clamp(-1.0, 1.0),
-	);
-
-	drivebase.set_side_percent_voltage(l, r);
-
-	brain.write_changes();
-}
-
-fn auton_skills(brain: &mut Brain, odom: &mut Odometry, drivebase: &mut Tankdrive<3>) {
-	std::thread::sleep(std::time::Duration::from_millis(1));
-}
