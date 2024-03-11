@@ -17,14 +17,12 @@ use odom::Odometry;
 use pid::Pid;
 use protocol::device::ControllerButtons;
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::bmi088::ROBOT_A_IMU_BIAS;
 
 const IS_SKILLS: bool = true;
 pub const BRAIN_TIMEOUT: Duration = Duration::from_millis(500);
-
-const IMU_BIAS: f64 = 0.0;
 
 fn main() -> ! {
 	Robot::run();
@@ -109,7 +107,6 @@ struct Robot {
 	drivebase: Tankdrive<3>,
 	mediator: Mediator,
 	odom: Odometry,
-	start: Instant,
 	pid_l: Pid,
 	pid_r: Pid,
 }
@@ -144,7 +141,6 @@ impl Robot {
 			drivebase,
 			mediator,
 			odom,
-			start: Instant::now(),
 			pid_l: Pid::new(2.0, 0.5, 0.0),
 			pid_r: Pid::new(2.0, 0.5, 0.0),
 		}
@@ -157,6 +153,16 @@ impl Robot {
 						if let Err(e) = self.mediator.send_event(FromMediator::Pong) {
 							eprintln!("Failed to send Pong event: {e}");
 						}
+					}
+					ToMediator::Pid((kp, ki, kd)) => {
+						self.pid_l.kp = kp;
+						self.pid_l.kp = kp;
+						self.pid_r.ki = ki;
+						self.pid_r.ki = ki;
+						self.pid_l.kd = kd;
+						self.pid_r.kd = kd;
+						self.pid_l.reset();
+						self.pid_r.reset();
 					}
 					_ => {}
 				}

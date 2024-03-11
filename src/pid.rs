@@ -1,9 +1,9 @@
 use std::time::Instant;
 
 pub struct Pid {
-	kp: f64,
-	ki: f64,
-	kd: f64,
+	pub kp: f64,
+	pub ki: f64,
+	pub kd: f64,
 	target: f64,
 	ki_integral: f64,
 	last_error: f64,
