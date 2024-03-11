@@ -5,7 +5,6 @@ mod drivebase;
 mod motor;
 mod odom;
 
-use bmi088::Bmi088;
 use brain::Brain;
 use communication::{
 	packet::{FromMediator, ToMediator},
@@ -13,8 +12,11 @@ use communication::{
 };
 use controller::Controller;
 use drivebase::Tankdrive;
+use odom::Odometry;
 
 use std::time::Duration;
+
+use crate::bmi088::ROBOT_A_IMU_BIAS;
 
 const IS_SKILLS: bool = true;
 pub const BRAIN_TIMEOUT: Duration = Duration::from_millis(500);
@@ -42,7 +44,7 @@ impl Default for RobotState {
 }
 
 impl RobotState {
-	pub fn progress(&mut self, brain_state: brain::State, imu: &mut Bmi088) {
+	pub fn progress(&mut self, brain_state: brain::State, odom: &mut Odometry) {
 		*self = match (*self, brain_state, IS_SKILLS) {
 			(Self::Off, brain::State::Disabled, _) => {
 				log::info!("Connection established with the brain.");
@@ -83,7 +85,7 @@ impl RobotState {
 			}
 			(_, brain::State::Auton, true) => {
 				if *self != Self::AutonSkills {
-					imu.reset();
+					odom.reset();
 					log::info!("Entering AutonSkills state.");
 				}
 				Self::AutonSkills
@@ -103,7 +105,7 @@ struct Robot {
 	controller: Controller,
 	drivebase: Tankdrive<3>,
 	mediator: Mediator,
-	imu: Bmi088,
+	odom: Odometry,
 }
 
 // merge or move these functions?
@@ -122,12 +124,12 @@ impl Robot {
 
 		// this is the drivetrain configuration for the nationals hang robot
 		let drivebase = Tankdrive::new(
-			[(11, false), (12, false), (17, false)],
-			[(14, true), (15, true), (16, true)],
+			[(11, false), (12, true), (17, true)],
+			[(14, false), (15, true), (16, false)],
 			&brain,
 		);
 
-		let imu = Bmi088::new(IMU_BIAS);
+		let odom = Odometry::new(ROBOT_A_IMU_BIAS);
 
 		Self {
 			state: RobotState::default(),
@@ -135,7 +137,7 @@ impl Robot {
 			controller,
 			drivebase,
 			mediator,
-			imu,
+			odom,
 		}
 	}
 	pub fn handle_events(&mut self) {
@@ -158,12 +160,12 @@ impl Robot {
 
 			// updates controller, robot state & motors
 			self.brain
-				.update_state(&mut self.controller, &mut self.state, &mut self.imu);
+				.update_state(&mut self.controller, &mut self.state, &mut self.odom);
 
 			match self.state {
 				RobotState::Off | RobotState::Disabled => {}
 				RobotState::AutonSkills => {
-					auton_skills(&mut self.brain, &mut self.imu, &mut self.drivebase)
+					auton_skills(&mut self.brain, &mut self.odom, &mut self.drivebase)
 				}
 				RobotState::DriverAuton => {}
 				RobotState::DriverSkills => {
@@ -171,7 +173,7 @@ impl Robot {
 						&mut self.brain,
 						&self.controller,
 						&mut self.drivebase,
-						&mut self.imu,
+						&mut self.odom,
 					);
 				}
 				RobotState::DriverDriver => {
@@ -179,7 +181,7 @@ impl Robot {
 						&mut self.brain,
 						&self.controller,
 						&mut self.drivebase,
-						&mut self.imu,
+						&mut self.odom,
 					);
 				}
 			}
@@ -193,14 +195,16 @@ fn driver(
 	brain: &mut Brain,
 	controller: &Controller,
 	drivebase: &mut Tankdrive<3>,
-	imu: &mut Bmi088,
+	odom: &mut Odometry,
 ) {
 	std::thread::sleep(std::time::Duration::from_millis(1));
 	let mut thread_rng = rand::thread_rng();
 	use rand::Rng;
-	if thread_rng.gen::<f64>() < 1.0 {
-		plot!("heading", imu.heading());
-	}
+	/*if thread_rng.gen::<f64>() < 1.0 {
+		plot!("heading", odom.heading());
+		communication::odom(odom.position(), odom.heading());
+	}*/
+	communication::odom(odom.position(), odom.heading());
 	let forward_rate = controller.ly();
 	let turning_rate = controller.rx();
 	let (l, r) = (
@@ -213,6 +217,6 @@ fn driver(
 	brain.write_changes();
 }
 
-fn auton_skills(brain: &mut Brain, imu: &mut Bmi088, drivebase: &mut Tankdrive<3>) {
+fn auton_skills(brain: &mut Brain, odom: &mut Odometry, drivebase: &mut Tankdrive<3>) {
 	std::thread::sleep(std::time::Duration::from_millis(1));
 }

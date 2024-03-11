@@ -2,6 +2,8 @@ use std::time::Instant;
 
 use rppal::i2c::I2c;
 
+pub const ROBOT_A_IMU_BIAS: f64 = 0.0004146448; //0.0002138361;
+
 const ANGULAR_CODE: u8 = 0x01;
 const ANGULAR_SCALE: f64 = match ANGULAR_CODE {
 	0x00 => 2000.0,

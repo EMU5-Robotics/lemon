@@ -10,6 +10,7 @@ use crate::{
 	bmi088::Bmi088,
 	controller::Controller,
 	motor::{self, Motor},
+	odom::Odometry,
 	RobotState,
 };
 
@@ -104,7 +105,7 @@ impl Brain {
 		&mut self,
 		controller: &mut Controller,
 		robot_state: &mut RobotState,
-		imu: &mut Bmi088,
+		odom: &mut Odometry,
 	) -> bool {
 		if let Some(data_pkt) = self.serial.take_status_pkt() {
 			self.read_motors(&data_pkt.1);
@@ -112,9 +113,9 @@ impl Brain {
 			self.pkt_buffer.swap(0, 1);
 			self.last_update = Instant::now();
 
-			robot_state.progress(self.pkt_buffer[0].brain_state(), imu);
+			robot_state.progress(self.pkt_buffer[0].brain_state(), odom);
 			*controller = self.pkt_buffer.clone().into();
-			imu.calc_heading();
+			odom.calc_position();
 
 			true
 		} else {
