@@ -115,7 +115,6 @@ impl Brain {
 
 			robot_state.progress(self.pkt_buffer[0].brain_state(), odom);
 			*controller = self.pkt_buffer.clone().into();
-			odom.calc_position();
 
 			true
 		} else {

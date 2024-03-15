@@ -141,8 +141,8 @@ impl Robot {
 			drivebase,
 			mediator,
 			odom,
-			pid_l: Pid::new(2.0, 0.5, 0.0),
-			pid_r: Pid::new(2.0, 0.5, 0.0),
+			pid_l: Pid::new(2.0, 1.5, 1.0),
+			pid_r: Pid::new(2.0, 1.5, 1.0),
 		}
 	}
 	pub fn handle_events(&mut self) {
@@ -156,13 +156,14 @@ impl Robot {
 					}
 					ToMediator::Pid((kp, ki, kd)) => {
 						self.pid_l.kp = kp;
-						self.pid_l.kp = kp;
-						self.pid_r.ki = ki;
+						self.pid_r.kp = kp;
+						self.pid_l.ki = ki;
 						self.pid_r.ki = ki;
 						self.pid_l.kd = kd;
 						self.pid_r.kd = kd;
 						self.pid_l.reset();
 						self.pid_r.reset();
+						log::info!("PID values changed to {kp}|{ki}|{kd}");
 					}
 					_ => {}
 				}
@@ -191,8 +192,10 @@ impl Robot {
 		}
 	}
 	fn driver(&mut self) {
+		self.odom.calc_position();
 		let velocities = self.odom.side_velocities();
-		plot!("velocities", velocities);
+		plot!("velocities", "left", velocities[0]);
+		plot!("velocities", "right", velocities[1]);
 
 		communication::odom(self.odom.position(), self.odom.heading());
 		let forward_rate = self.controller.ly();
@@ -217,7 +220,6 @@ impl Robot {
 		self.drivebase.set_side_percent_voltage(l, r);
 
 		self.brain.write_changes();
-		std::thread::sleep(std::time::Duration::from_millis(1));
 	}
 
 	fn auton_skills(&mut self) {

@@ -1,11 +1,17 @@
 use crate::bmi088::Bmi088;
 use amt22::Amt22;
 use rppal::spi::Spi;
-use std::time::Instant;
+use std::{
+	collections::VecDeque,
+	time::{Duration, Instant},
+};
 
 const LEFT_DIST: f64 = 0.05;
 const RIGHT_DIST: f64 = 0.05;
 const BACK_DIST: f64 = 0.1;
+
+const NUM_LIN: usize = 30;
+const INV_NUM_LIN: f64 = 1.0 / NUM_LIN as f64;
 
 pub struct TrackingWheels {
 	back: Amt22<Spi>,
@@ -74,7 +80,16 @@ impl TrackingWheels {
 		);*/
 
 		// multiply by tracking wheel circumference to figure out distance travelled
-		self.distances = rotations.map(|v| v * Self::TRACKING_CIRCUMFERENCE);
+		let new_distances = rotations.map(|v| v * Self::TRACKING_CIRCUMFERENCE);
+		if (self.distances[0] - new_distances[0]).abs() < 0.1 {
+			self.distances[0] = new_distances[0];
+		}
+		if (self.distances[1] - new_distances[1]).abs() < 0.1 {
+			self.distances[1] = new_distances[1];
+		}
+		if (self.distances[2] - new_distances[2]).abs() < 0.1 {
+			self.distances[2] = new_distances[2];
+		}
 
 		//plot!("encoders (distance)", self.distances);
 	}
@@ -84,10 +99,12 @@ pub struct Odometry {
 	imu: Bmi088,
 	tracking_wheels: TrackingWheels,
 	position: [f64; 2],
-	velocities: [[f64; 2]; 10],
-	index: usize,
+	velocity: [f64; 2],
 	last_update: Instant,
+	last_pos: [f64; 2],
 	first_update: bool,
+	last_10_times: VecDeque<Instant>,
+	last_10_vals: VecDeque<[f64; 2]>,
 }
 
 impl Odometry {
@@ -98,10 +115,12 @@ impl Odometry {
 			imu,
 			tracking_wheels: TrackingWheels::new(),
 			position: [0.0; 2],
-			velocities: [[0.0; 2]; 10],
-			index: 0,
+			velocity: [0.0; 2],
 			last_update: Instant::now(),
+			last_pos: [0.0; 2],
 			first_update: true,
+			last_10_times: VecDeque::from([Instant::now(); NUM_LIN]),
+			last_10_vals: VecDeque::from([[0.0; 2]; NUM_LIN]),
 		}
 	}
 	pub fn calc_position(&mut self) {
@@ -117,22 +136,31 @@ impl Odometry {
 		// get the new heading and wheel positions
 		let heading = self.imu.heading();
 		let [left, right, back] = self.tracking_wheels.distances();
+		self.last_10_times.push_back(Instant::now());
+		self.last_10_times.pop_front();
+		self.last_10_vals.push_back([left, right]);
+		self.last_10_vals.pop_front();
 
 		// get the differences
 		let diff_heading = heading - last_heading;
 		let [diff_left, diff_right, diff_back] =
 			[left - last_left, right - last_right, back - last_back];
 
+		use communication::plot;
+		//plot!("velocities", [diff_left, diff_right]);
+
 		// velocities
-		let last_update = self.last_update;
-		self.last_update = Instant::now();
-		if !self.first_update {
+		if !self.first_update && self.last_update.elapsed() > Duration::from_millis(10) {
+			let last_update = self.last_update;
+			self.last_update = Instant::now();
 			let dur = self.last_update.duration_since(last_update).as_secs_f64();
-			self.velocities[self.index] = [diff_left / dur, diff_right / dur];
-			self.velocities.sort_by(|a, b| {
-				f64::total_cmp(&(a[0] * a[0] + a[1] * a[1]), &(b[0] * b[0] + b[1] * b[1]))
-			});
-			self.index = (self.index + 1) % 10;
+			let left_vel = left - self.last_pos[0];
+			let right_vel = right - self.last_pos[1];
+			let (left_vel, right_vel) = (left_vel / dur, right_vel / dur);
+			self.velocity = [left_vel, right_vel];
+			//plot!("velocities", "leftd", self.velocity[0]);
+			//plot!("velocities", "rightd", self.velocity[1]);
+			self.last_pos = [left, right];
 		} else {
 			self.first_update = false;
 		}
@@ -171,26 +199,33 @@ impl Odometry {
 		self.imu.heading()
 	}
 	pub fn side_velocities(&self) -> [f64; 2] {
-		[
-			(self.velocities[0][0]
-				+ self.velocities[1][0]
-				+ self.velocities[2][0]
-				+ self.velocities[3][0]
-				+ self.velocities[4][0]
-				+ self.velocities[5][0]
-				+ self.velocities[6][0]
-				+ self.velocities[7][0])
-				* 0.125,
-			(self.velocities[0][1]
-				+ self.velocities[1][1]
-				+ self.velocities[2][1]
-				+ self.velocities[3][1]
-				+ self.velocities[4][1]
-				+ self.velocities[5][1]
-				+ self.velocities[6][1]
-				+ self.velocities[7][1])
-				* 0.125,
-		]
+		let start = self.last_10_times[0];
+		let times: Vec<_> = self
+			.last_10_times
+			.iter()
+			.map(|v| v.duration_since(start).as_secs_f64())
+			.collect();
+		let avg_time = times.iter().sum::<f64>() * INV_NUM_LIN;
+		let denom = times.iter().map(|v| (v - avg_time).powi(2)).sum::<f64>();
+
+		let avg_x = self.last_10_vals.iter().map(|v| v[0]).sum::<f64>() * INV_NUM_LIN;
+		let avg_y = self.last_10_vals.iter().map(|v| v[1]).sum::<f64>() * INV_NUM_LIN;
+		let x =
+			self.last_10_vals
+				.iter()
+				.zip(times.iter())
+				.map(|(v, t)| (v[0] - avg_x) * (t - avg_time))
+				.sum::<f64>() / denom;
+		let y =
+			self.last_10_vals
+				.iter()
+				.zip(times.iter())
+				.map(|(v, t)| (v[1] - avg_y) * (t - avg_time))
+				.sum::<f64>() / denom;
+		if !x.is_nan() && !y.is_nan() {
+			return [x, y];
+		}
+		self.velocity
 	}
 	pub fn reset(&mut self) {
 		self.imu.reset()

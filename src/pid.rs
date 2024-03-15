@@ -40,6 +40,8 @@ impl Pid {
 
 		// bumpless operation see (wikipedia.org/wiki/Proportional-integral-derivative_controller#Bumpless_operation)
 		self.ki_integral += self.ki * error * diff_t;
+		use communication::plot;
+		plot!("int", [self.ki_integral, self.ki, error]);
 
 		let output = self.kp * error + self.ki_integral + self.kd * (error - self.last_error);
 
@@ -49,6 +51,10 @@ impl Pid {
 		output
 	}
 	pub fn reset(&mut self) {
+		log::info!("reset called");
 		self.first_update = true;
+		self.ki_integral = 0.0;
+		self.last_error = 0.0;
+		self.last_update = Instant::now();
 	}
 }
