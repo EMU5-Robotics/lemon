@@ -4,6 +4,7 @@ mod controller;
 mod drivebase;
 mod motor;
 mod odom;
+mod path;
 mod pid;
 
 use brain::Brain;
@@ -107,8 +108,6 @@ struct Robot {
 	drivebase: Tankdrive<3>,
 	mediator: Mediator,
 	odom: Odometry,
-	pid_l: Pid,
-	pid_r: Pid,
 	pid_angle: Pid,
 }
 
@@ -143,8 +142,6 @@ impl Robot {
 			drivebase,
 			mediator,
 			odom,
-			pid_l: Pid::new(0.5, 5.0, 4.0),
-			pid_r: Pid::new(0.5, 5.0, 4.0),
 			pid_angle: Pid::new(0.35, 0.035, 2.2),
 		}
 	}
@@ -158,14 +155,6 @@ impl Robot {
 						}
 					}
 					ToMediator::Pid((kp, ki, kd)) => {
-						/*self.pid_l.kp = kp;
-						self.pid_r.kp = kp;
-						self.pid_l.ki = ki;
-						self.pid_r.ki = ki;
-						self.pid_l.kd = kd;
-						self.pid_r.kd = kd;
-						self.pid_l.reset();
-						self.pid_r.reset();*/
 						self.pid_angle.kp = kp;
 						self.pid_angle.ki = ki;
 						self.pid_angle.kd = kd;
@@ -201,9 +190,6 @@ impl Robot {
 	}
 	fn driver(&mut self, is_pid: &mut bool) {
 		self.odom.calc_position();
-		//let velocities = self.odom.side_velocities();
-		//plot!("velocities", "left", velocities[0]);
-		//plot!("velocities", "right", velocities[1]);
 
 		communication::odom(self.odom.position(), self.odom.heading());
 		let forward_rate = self.controller.ly();
@@ -214,28 +200,6 @@ impl Robot {
 		);
 		use communication::plot;
 		plot!("heading (degrees)", self.odom.heading().to_degrees());
-		/*if self.controller.released(ControllerButtons::A) {
-			if !*is_pid {
-				log::info!("Entering PID mode");
-				*is_pid = true;
-				self.pid_l.set_target(l * 1.6);
-				self.pid_r.set_target(r * 1.5);
-				self.pid_l.reset();
-				self.pid_r.reset();
-			} else {
-				log::info!("Exiting PID mode");
-				*is_pid = false;
-			}
-		}
-		if *is_pid {
-			self.pid_l.set_target(l * 1.6);
-			self.pid_r.set_target(r * 1.6);
-			//let (t_l, t_r) = (l, r);
-			l = self.pid_l.poll(velocities[0]).clamp(-1.0, 1.0);
-			r = self.pid_r.poll(velocities[1]).clamp(-1.0, 1.0);
-			//plot!("pid values", [l, r]);
-			//plot!("errors", [t_l - velocities[0], t_r - velocities[1]]);
-		}*/
 		if self.controller.pressed(ControllerButtons::A) {
 			self.pid_angle
 				.set_target(self.odom.heading() + std::f64::consts::FRAC_PI_2);
@@ -250,7 +214,6 @@ impl Robot {
 
 		// for some reason the gearbox doesn't set properly
 		self.drivebase.set_side_percent_max_rpm(l, r, 200.0);
-		//self.drivebase.set_side_percent_voltage(l, r);
 
 		self.brain.write_changes();
 		std::thread::sleep(Duration::from_millis(1));

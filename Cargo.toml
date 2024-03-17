@@ -16,6 +16,7 @@ client = { git = "ssh://git@github.com/EMU5-Robotics/transport", rev = "cab298a5
 common = { git = "ssh://git@github.com/EMU5-Robotics/transport", rev = "cab298a55192cf496576b127a459629c3666e4d4" }
 protocol = { git = "ssh://git@github.com/EMU5-Robotics/transport", rev = "cab298a55192cf496576b127a459629c3666e4d4" }
 communication = { git = "ssh://git@github.com/EMU5-Robotics/communication", rev = "b03028989110fda947ad9dcfc09c514b7aeada97" }
+robot_algorithms = { git = "ssh://git@github.com/nonl4331/robot-algorithms", rev = "9474d943d101220693153f65c4042c7226afab90" }
 
 anyhow = "1.0"
 log = "0.4"

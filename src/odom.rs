@@ -201,6 +201,10 @@ impl Odometry {
 	pub fn heading(&self) -> f64 {
 		self.imu.heading()
 	}
+	// note may need smoothing/filtering
+	pub fn angular_velocity(&self) -> f64 {
+		self.imu.angular_velocity()
+	}
 	pub fn side_velocities(&self) -> [f64; 2] {
 		let start = self.last_10_times[0];
 		let times: Vec<_> = self

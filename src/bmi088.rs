@@ -59,6 +59,9 @@ impl Bmi088 {
 	pub fn heading(&self) -> f64 {
 		self.heading
 	}
+	pub fn angular_velocity(&self) -> f64 {
+		self.last_angular_vel_z
+	}
 	pub fn calc_heading(&mut self) -> f64 {
 		let new_angular_vel_z = self.read_vel_z();
 		let now = Instant::now();
