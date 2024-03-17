@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-use protocol::device::MotorState;
+use protocol::device::{Gearbox, MotorState};
 
 pub const MAX_MILLIVOLT: i32 = 12000;
 

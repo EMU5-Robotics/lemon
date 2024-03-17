@@ -9,7 +9,7 @@ mod pid;
 use brain::Brain;
 use communication::{
 	packet::{FromMediator, ToMediator},
-	plot, Mediator,
+	Mediator,
 };
 use controller::Controller;
 use drivebase::Tankdrive;
@@ -109,6 +109,7 @@ struct Robot {
 	odom: Odometry,
 	pid_l: Pid,
 	pid_r: Pid,
+	pid_angle: Pid,
 }
 
 // merge or move these functions?
@@ -122,14 +123,15 @@ impl Robot {
 
 		// block until connection is establish with brain
 		log::info!("Connecting to the brain.");
-		let (brain, controller) = Brain::init();
+		let (mut brain, controller) = Brain::init();
 		log::info!("Connected to the brain.");
 
 		// this is the drivetrain configuration for the nationals hang robot
 		let drivebase = Tankdrive::new(
 			[(11, false), (12, true), (17, true)],
 			[(14, false), (15, true), (16, false)],
-			&brain,
+			protocol::device::Gearbox::Blue,
+			&mut brain,
 		);
 
 		let odom = Odometry::new(ROBOT_A_IMU_BIAS);
@@ -141,8 +143,9 @@ impl Robot {
 			drivebase,
 			mediator,
 			odom,
-			pid_l: Pid::new(2.0, 1.5, 1.0),
-			pid_r: Pid::new(2.0, 1.5, 1.0),
+			pid_l: Pid::new(0.5, 5.0, 4.0),
+			pid_r: Pid::new(0.5, 5.0, 4.0),
+			pid_angle: Pid::new(0.35, 0.035, 2.2),
 		}
 	}
 	pub fn handle_events(&mut self) {
@@ -155,15 +158,19 @@ impl Robot {
 						}
 					}
 					ToMediator::Pid((kp, ki, kd)) => {
-						self.pid_l.kp = kp;
+						/*self.pid_l.kp = kp;
 						self.pid_r.kp = kp;
 						self.pid_l.ki = ki;
 						self.pid_r.ki = ki;
 						self.pid_l.kd = kd;
 						self.pid_r.kd = kd;
 						self.pid_l.reset();
-						self.pid_r.reset();
-						log::info!("PID values changed to {kp}|{ki}|{kd}");
+						self.pid_r.reset();*/
+						self.pid_angle.kp = kp;
+						self.pid_angle.ki = ki;
+						self.pid_angle.kd = kd;
+						self.pid_angle.reset();
+						log::info!("PID values (angle) changed to {kp}|{ki}|{kd}");
 					}
 					_ => {}
 				}
@@ -171,6 +178,7 @@ impl Robot {
 		}
 	}
 	pub fn main_loop(&mut self) -> ! {
+		let mut is_pid = false;
 		loop {
 			self.handle_events();
 
@@ -183,19 +191,19 @@ impl Robot {
 				RobotState::AutonSkills => self.auton_skills(),
 				RobotState::DriverAuton => {}
 				RobotState::DriverSkills => {
-					self.driver();
+					self.driver(&mut is_pid);
 				}
 				RobotState::DriverDriver => {
-					self.driver();
+					self.driver(&mut is_pid);
 				}
 			}
 		}
 	}
-	fn driver(&mut self) {
+	fn driver(&mut self, is_pid: &mut bool) {
 		self.odom.calc_position();
-		let velocities = self.odom.side_velocities();
-		plot!("velocities", "left", velocities[0]);
-		plot!("velocities", "right", velocities[1]);
+		//let velocities = self.odom.side_velocities();
+		//plot!("velocities", "left", velocities[0]);
+		//plot!("velocities", "right", velocities[1]);
 
 		communication::odom(self.odom.position(), self.odom.heading());
 		let forward_rate = self.controller.ly();
@@ -204,22 +212,48 @@ impl Robot {
 			(forward_rate + turning_rate * TURN_MULTIPLIER).clamp(-1.0, 1.0),
 			(forward_rate - turning_rate * TURN_MULTIPLIER).clamp(-1.0, 1.0),
 		);
-		if self.controller.pressed(ControllerButtons::A) {
-			self.pid_l.set_target(0.2);
-			self.pid_r.set_target(0.2);
-			self.pid_l.reset();
-			self.pid_r.reset();
+		use communication::plot;
+		plot!("heading (degrees)", self.odom.heading().to_degrees());
+		/*if self.controller.released(ControllerButtons::A) {
+			if !*is_pid {
+				log::info!("Entering PID mode");
+				*is_pid = true;
+				self.pid_l.set_target(l * 1.6);
+				self.pid_r.set_target(r * 1.5);
+				self.pid_l.reset();
+				self.pid_r.reset();
+			} else {
+				log::info!("Exiting PID mode");
+				*is_pid = false;
+			}
 		}
-		if self.controller.held(ControllerButtons::A) {
+		if *is_pid {
+			self.pid_l.set_target(l * 1.6);
+			self.pid_r.set_target(r * 1.6);
+			//let (t_l, t_r) = (l, r);
 			l = self.pid_l.poll(velocities[0]).clamp(-1.0, 1.0);
 			r = self.pid_r.poll(velocities[1]).clamp(-1.0, 1.0);
-			plot!("pid values", [l, r]);
-			plot!("errors", [0.2 - velocities[0], 0.2 - velocities[1]]);
+			//plot!("pid values", [l, r]);
+			//plot!("errors", [t_l - velocities[0], t_r - velocities[1]]);
+		}*/
+		if self.controller.pressed(ControllerButtons::A) {
+			self.pid_angle
+				.set_target(self.odom.heading() + std::f64::consts::FRAC_PI_2);
+			self.pid_angle.reset();
 		}
 
-		self.drivebase.set_side_percent_voltage(l, r);
+		if self.controller.held(ControllerButtons::A) {
+			let pw = self.pid_angle.poll(self.odom.heading()).clamp(-1.0, 1.0);
+			l = -pw;
+			r = pw;
+		}
+
+		// for some reason the gearbox doesn't set properly
+		self.drivebase.set_side_percent_max_rpm(l, r, 200.0);
+		//self.drivebase.set_side_percent_voltage(l, r);
 
 		self.brain.write_changes();
+		std::thread::sleep(Duration::from_millis(1));
 	}
 
 	fn auton_skills(&mut self) {

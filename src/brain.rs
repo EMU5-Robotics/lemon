@@ -2,12 +2,11 @@ use std::time::Instant;
 
 use client::coprocessor::serial::{find_v5_port, Serial, SerialSpawner};
 use protocol::{
-	device::{CompetitionState, ControllerButtons},
+	device::{CompetitionState, ControllerButtons, Gearbox},
 	ControlPkt, StatusPkt,
 };
 
 use crate::{
-	bmi088::Bmi088,
 	controller::Controller,
 	motor::{self, Motor},
 	odom::Odometry,
@@ -146,6 +145,11 @@ impl Brain {
 		}
 
 		self.serial.set_control_pkt(ctrl_pkt);
+	}
+	pub fn set_gearboxes(&mut self, gearbox: Gearbox, ports: impl IntoIterator<Item = u8>) {
+		self.serial
+			.set_gearboxes(ports.into_iter().map(|p| (p, gearbox)));
+		self.serial.update_gearboxes();
 	}
 	fn read_motors(&mut self, status_pkt: &StatusPkt) {
 		for motor in &mut self.motors {

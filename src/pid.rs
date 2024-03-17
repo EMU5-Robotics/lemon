@@ -34,14 +34,13 @@ impl Pid {
 		let error = self.target - pv;
 		// clegg integration (avoid integral windup)
 		// see (wikipedia.org/wiki/Integral_windup)
-		/*if self.last_error.signum() != error.signum() {
+		if self.last_error.signum() != error.signum() {
 			self.ki_integral = 0.0;
-		}*/
+		}
 
 		// bumpless operation see (wikipedia.org/wiki/Proportional-integral-derivative_controller#Bumpless_operation)
 		self.ki_integral += self.ki * error * diff_t;
-		use communication::plot;
-		plot!("int", [self.ki_integral, self.ki, error]);
+		self.ki_integral = self.ki_integral.clamp(-1.0, 1.0);
 
 		let output = self.kp * error + self.ki_integral + self.kd * (error - self.last_error);
 

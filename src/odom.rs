@@ -20,6 +20,7 @@ pub struct TrackingWheels {
 	// zero offset in rotations
 	zeros: [f64; 3],
 	distances: [f64; 3],
+	last_raw: [f64; 3],
 }
 
 impl TrackingWheels {
@@ -43,18 +44,19 @@ impl TrackingWheels {
 
 		Self {
 			// get zero offset measured in rotations
-			zeros: [&mut left, &mut right, &mut back].map(Self::enc_to_rotations),
+			zeros: [&mut left, &mut right, &mut back].map(|v| Self::enc_to_rotations(v).unwrap()),
 			distances: [0.0; 3],
 			left,
 			right,
 			back,
+			last_raw: [0.0; 3],
 		}
 	}
 	// returns signed rotations done
-	fn enc_to_rotations(enc: &mut Amt22<Spi>) -> f64 {
+	fn enc_to_rotations(enc: &mut Amt22<Spi>) -> Option<f64> {
 		// TODO: remove unwrap
-		let (turns, subturns) = enc.read_absolute_position_raw().unwrap();
-		turns as f64 + Self::ENCODER_TICK_SCALE * subturns as f64
+		let (turns, subturns) = enc.read_absolute_position_raw().ok()?;
+		Some(turns as f64 + Self::ENCODER_TICK_SCALE * subturns as f64)
 	}
 	pub fn distances(&self) -> [f64; 3] {
 		let [l, r, b] = self.distances;
@@ -66,18 +68,24 @@ impl TrackingWheels {
 		// get uncorrected rotation count
 		let rotations =
 			[&mut self.left, &mut self.right, &mut self.back].map(Self::enc_to_rotations);
+
+		// fallback to last value if read fails
+		if let Some(r) = rotations[0] {
+			self.last_raw[0] = r;
+		}
+		if let Some(r) = rotations[1] {
+			self.last_raw[1] = r;
+		}
+		if let Some(r) = rotations[2] {
+			self.last_raw[2] = r;
+		}
+
 		// correct for zero offset
 		let rotations = [
-			rotations[0] - self.zeros[0],
-			rotations[1] - self.zeros[1],
-			rotations[2] - self.zeros[2],
+			self.last_raw[0] - self.zeros[0],
+			self.last_raw[1] - self.zeros[1],
+			self.last_raw[2] - self.zeros[2],
 		];
-
-		/*plot!("encoders (degrees)", rotations.map(|v| v * 360.0));
-		plot!(
-			"encoders (radians)",
-			rotations.map(|v| v * std::f64::consts::TAU)
-		);*/
 
 		// multiply by tracking wheel circumference to figure out distance travelled
 		let new_distances = rotations.map(|v| v * Self::TRACKING_CIRCUMFERENCE);
@@ -90,8 +98,6 @@ impl TrackingWheels {
 		if (self.distances[2] - new_distances[2]).abs() < 0.1 {
 			self.distances[2] = new_distances[2];
 		}
-
-		//plot!("encoders (distance)", self.distances);
 	}
 }
 
@@ -145,9 +151,6 @@ impl Odometry {
 		let diff_heading = heading - last_heading;
 		let [diff_left, diff_right, diff_back] =
 			[left - last_left, right - last_right, back - last_back];
-
-		use communication::plot;
-		//plot!("velocities", [diff_left, diff_right]);
 
 		// velocities
 		if !self.first_update && self.last_update.elapsed() > Duration::from_millis(10) {
@@ -223,10 +226,50 @@ impl Odometry {
 				.map(|(v, t)| (v[1] - avg_y) * (t - avg_time))
 				.sum::<f64>() / denom;
 		if !x.is_nan() && !y.is_nan() {
+			/*use communication::plot;
+			plot!("velocities", "real", self.velocity);
+			plot!("velocities", "smoothed", [x, y]);
+			plot!(
+				"velocities",
+				"delta",
+				[self.velocity[0] - x, self.velocity[1] - y]
+			);*/
+
 			return [x, y];
 		}
 		self.velocity
 	}
+	/*pub fn side_velocities_quad_reg(&self) -> [f64; 2] {
+		let start = self.last_10_times[0];
+		let times: Vec<_> = self
+			.last_10_times
+			.iter()
+			.map(|v| v.duration_since(start).as_secs_f64())
+			.collect();
+		let avg_time = times.iter().sum::<f64>() * INV_NUM_LIN;
+		let denom = times.iter().map(|v| (v - avg_time).powi(2)).sum::<f64>();
+
+		let avg_x = self.last_10_vals.iter().map(|v| v[0]).sum::<f64>() * INV_NUM_LIN;
+		let avg_y = self.last_10_vals.iter().map(|v| v[1]).sum::<f64>() * INV_NUM_LIN;
+		let avg_x_sq = self.last_10_vals.iter().map(|v| v[0].powi(2)).sum::<f64>() * INV_NUM_LIN;
+		let avg_y_sq = self.last_10_vals.iter().map(|v| v[1].powi(2)).sum::<f64>() * INV_NUM_LIN;
+		let x =
+			self.last_10_vals
+				.iter()
+				.zip(times.iter())
+				.map(|(v, t)| (v[0] - avg_x) * (t - avg_time))
+				.sum::<f64>() / denom;
+		let y =
+			self.last_10_vals
+				.iter()
+				.zip(times.iter())
+				.map(|(v, t)| (v[1] - avg_y) * (t - avg_time))
+				.sum::<f64>() / denom;
+		if !x.is_nan() && !y.is_nan() {
+			return [x, y];
+		}
+		self.velocity
+	}*/
 	pub fn reset(&mut self) {
 		self.imu.reset()
 	}
