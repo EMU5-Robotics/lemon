@@ -9,8 +9,7 @@ use protocol::{
 use crate::{
 	controller::Controller,
 	motor::{self, Motor},
-	odom::Odometry,
-	RobotState,
+	robot::RobotState,
 };
 
 // this is not designed to ever be mutated
@@ -103,27 +102,24 @@ impl Brain {
 	pub fn update_state(
 		&mut self,
 		controller: &mut Controller,
-		robot_state: &mut RobotState,
-		odom: &mut Odometry,
-	) -> bool {
+		robot_state: &RobotState,
+	) -> RobotState {
 		if let Some(data_pkt) = self.serial.take_status_pkt() {
 			self.read_motors(&data_pkt.1);
 			self.pkt_buffer[1] = data_pkt.into();
 			self.pkt_buffer.swap(0, 1);
 			self.last_update = Instant::now();
 
-			robot_state.progress(self.pkt_buffer[0].brain_state(), odom);
 			*controller = self.pkt_buffer.clone().into();
 
-			true
+			RobotState::from_brain_state(self.pkt_buffer[0].brain_state)
 		} else {
 			if self.last_update.elapsed() > crate::BRAIN_TIMEOUT && *robot_state != RobotState::Off
 			{
 				log::warn!("Connection to the brain has been lost.");
-				*robot_state = RobotState::Off;
+				return RobotState::Off;
 			}
-
-			false
+			*robot_state
 		}
 	}
 	pub fn write_changes(&mut self) {

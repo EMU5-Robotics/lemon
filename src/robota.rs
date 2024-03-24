@@ -6,6 +6,7 @@ mod motor;
 mod odom;
 mod path;
 mod pid;
+mod robot;
 
 use brain::Brain;
 use communication::{
@@ -17,6 +18,7 @@ use drivebase::Tankdrive;
 use odom::Odometry;
 use pid::Pid;
 use protocol::device::ControllerButtons;
+use robot::RobotState;
 
 use std::time::Duration;
 
@@ -27,78 +29,6 @@ pub const BRAIN_TIMEOUT: Duration = Duration::from_millis(500);
 
 fn main() -> ! {
 	Robot::run();
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RobotState {
-	Off,
-	Disabled,
-	DriverSkills,
-	AutonSkills,
-	DriverDriver,
-	DriverAuton,
-}
-
-impl Default for RobotState {
-	fn default() -> Self {
-		Self::Off
-	}
-}
-
-impl RobotState {
-	pub fn progress(&mut self, brain_state: brain::State, odom: &mut Odometry) {
-		*self = match (*self, brain_state, IS_SKILLS) {
-			(Self::Off, brain::State::Disabled, _) => {
-				log::info!("Connection established with the brain.");
-				log::info!("Entering Disabled state.");
-				Self::Disabled
-			}
-			(Self::Off, brain::State::Driver, true) => {
-				log::warn!("Entered driver skills without first entering the disabled state");
-				log::info!("Entering DriverSkills state.");
-				Self::DriverSkills
-			}
-			(Self::Off, brain::State::Auton, true) => {
-				log::warn!("Entered auton skills without first entering the disabled state");
-				log::info!("Entering DriverSkills state.");
-				Self::DriverSkills
-			}
-			(Self::Disabled, brain::State::Driver, true) => {
-				log::info!("Entering DriverSkills state.");
-				Self::DriverSkills
-			}
-			(_, brain::State::Driver, false) => {
-				if *self != Self::DriverDriver {
-					log::info!("Entering DriverDriver state.");
-				}
-				Self::DriverDriver
-			}
-			(_, brain::State::Driver, true) => {
-				if *self != Self::DriverSkills {
-					log::info!("Entering DriverSkills state.");
-				}
-				Self::DriverSkills
-			}
-			(_, brain::State::Auton, false) => {
-				if *self != Self::DriverAuton {
-					log::info!("Entering DriverAuton state.");
-				}
-				Self::DriverAuton
-			}
-			(_, brain::State::Auton, true) => {
-				if *self != Self::AutonSkills {
-					odom.reset();
-					log::info!("Entering AutonSkills state.");
-				}
-				Self::AutonSkills
-			}
-			(Self::Disabled, brain::State::Disabled, _) => Self::Disabled,
-			(a, b, c) => {
-				log::info!("tried: {a:?} | {b:?} | {c:?}");
-				todo!()
-			}
-		};
-	}
 }
 
 struct Robot {
@@ -172,8 +102,18 @@ impl Robot {
 			self.handle_events();
 
 			// updates controller, robot state & motors
-			self.brain
-				.update_state(&mut self.controller, &mut self.state, &mut self.odom);
+			let new_state = self
+				.brain
+				.update_state(&mut self.controller, &mut self.state);
+			if new_state != self.state {
+				log::info!("State changed from {:?} to {new_state:?}", self.state);
+
+				// reset odom at start of auton
+				if new_state == RobotState::AutonSkills || new_state == RobotState::DriverAuton {
+					self.odom.reset();
+				}
+			}
+			self.state = new_state;
 
 			match self.state {
 				RobotState::Off | RobotState::Disabled => {}

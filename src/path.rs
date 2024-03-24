@@ -77,19 +77,33 @@ impl Route {
 			return;
 		}
 
+		// use MoveRel until lateral control exists use MoveRel
 		let heading = odom.heading();
 		match self.segments[self.current_segment] {
-			MinSegment::MoveRel(rel) => {
+			/*MinSegment::MoveRel(rel) => {
 				let pos = odom.position();
 				let (s, c) = heading.sin_cos();
 				self.segments[self.current_segment] =
 					MinSegment::MoveTo([pos[0] + rel * c, pos[1] + rel * s]);
-			}
+			}*/
 			MinSegment::TurnRel(rel) => {
 				self.segments[self.current_segment] = MinSegment::TurnTo(heading + rel);
 			}
+			MinSegment::MoveTo(pos) => {
+				let opos = odom.position();
+				let diff = [pos[0] - opos[0], pos[1] - opos[1]];
+				let target_heading = diff[1].atan2(diff[0]);
+				let len = (diff[0].powi(2) + diff[1].powi(2)).sqrt();
+				self.segments[self.current_segment] = MinSegment::MoveRel(len);
+				self.segments
+					.insert(self.current_segment, MinSegment::TurnTo(target_heading));
+			}
 			_ => {}
 		}
+		log::info!(
+			"Starting segment: {:?}",
+			self.segments[self.current_segment]
+		);
 	}
 	pub fn follow(&self, odom: &Odometry) -> [f64; 2] {
 		if self.ended {
@@ -109,7 +123,7 @@ impl Route {
 			_ => {}
 		}
 
-		//
+		// follow segement
 
 		todo!()
 	}
