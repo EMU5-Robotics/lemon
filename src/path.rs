@@ -1,20 +1,54 @@
 use communication::path::Action;
 
 use crate::odom::Odometry;
+use crate::pid::Pid;
+
+use std::collections::VecDeque;
+use std::f64::consts::{PI, TAU};
+
+/// Each auton "path" is a Route which is created
+/// from a vector of Actions (communication::path::Action)
+/// which then gets turned into a more minimal set of Actions
+/// represented by the MinSegment struct. When it is time to
+/// a MinSegment it gets turned into a ProcessedSegment which
+/// contains state needed to follow the "segment"
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum RouteState {
+    #[default]
+    SegmentStart,
+    SegmentFollowing,
+    Finished,
+}
 
 #[derive(Debug, Clone, Copy)]
 enum MinSegment {
     MoveTo([f64; 2]),
-    MoveRel(f64),
+    MoveRel((f64, [f64; 2], [f64; 2])),
     TurnTo(f64),
     TurnRel(f64),
+}
+
+enum ProcessedSegment {
+    MoveRel {
+        start: [f64; 2],
+        end: [f64; 2],
+        dist: f64,
+    },
+    TurnTo {
+        start_heading: f64,
+        target_heading: f64,
+    },
 }
 
 struct Route {
     current_segment: usize,
     prev_pos: [f64; 2],
     segments: Vec<MinSegment>,
-    ended: bool,
+    seg_buf: VecDeque<ProcessedSegment>,
+    cur_seg: Option<ProcessedSegment>,
+    state: RouteState,
+    angle_pid: Pid,
 }
 
 impl Route {
@@ -35,7 +69,7 @@ impl Route {
                 MoveRel { rel } => {
                     let (s, c) = heading.sin_cos();
                     pos = [pos[0] + rel * c, pos[1] + rel * s];
-                    minpaths.push(MinSegment::MoveRel(rel));
+                    minpaths.push(MinSegment::MoveRel((rel, [0.0; 2], [0.0; 2])));
                 }
                 MoveRelAbs { rel } => {
                     let (s, c) = heading.sin_cos();
@@ -64,67 +98,166 @@ impl Route {
             current_segment: 0,
             segments: minpaths,
             prev_pos: [0.0; 2],
-            ended: false,
+            seg_buf: VecDeque::new(),
+            cur_seg: None,
+            state: RouteState::default(),
+            angle_pid: Pid::new(0.35, 0.035, 2.2),
         }
     }
-    pub fn start_follow(&mut self, odom: &Odometry) {
-        if self.ended {
-            return;
+    fn optimise_target_heading(heading: f64, target: f64) -> f64 {
+        let mut delta = target - heading;
+        // map delta into [-TAU, TAU]
+        delta %= TAU;
+        // map delta into [0, TAU]
+        if delta < 0.0 {
+            delta += TAU;
         }
-        self.current_segment += 1;
-        if self.current_segment >= self.segments.len() {
-            self.ended = true;
-            return;
+        // map delta into [-PI, PI]
+        if delta > PI {
+            delta -= TAU;
         }
-
+        heading + delta
+    }
+    /// transform_segments will transform paths
+    /// into other using paths i.e. MoveTo -> TurnTo + MoveRel
+    /// or TurnRel to TurnTo as the robot can currently
+    /// only deal with relative (straight) movement and
+    /// absolute turns (though this might change soon with
+    /// regards to the absolute headings)
+    fn transform_segments(&mut self, odom: &Odometry) {
         // use MoveRel until lateral control exists use MoveRel
         let heading = odom.heading();
         match self.segments[self.current_segment] {
-            /*MinSegment::MoveRel(rel) => {
-                let pos = odom.position();
-                let (s, c) = heading.sin_cos();
-                self.segments[self.current_segment] =
-                    MinSegment::MoveTo([pos[0] + rel * c, pos[1] + rel * s]);
-            }*/
+            // note that this allows a suboptimal turn but
+            // such a turn is likely to be intentional
+            // unlike with TurnTo
             MinSegment::TurnRel(rel) => {
-                self.segments[self.current_segment] = MinSegment::TurnTo(heading + rel);
+                self.seg_buf.push_back(ProcessedSegment::TurnTo {
+                    start_heading: heading,
+                    target_heading: heading + rel,
+                });
+            }
+            // ensure TurnTo takes most optimal turn
+            // (don't turn more then half a turn)
+            MinSegment::TurnTo(target) => {
+                self.seg_buf.push_back(ProcessedSegment::TurnTo {
+                    start_heading: heading,
+                    target_heading: Self::optimise_target_heading(heading, target),
+                });
             }
             MinSegment::MoveTo(pos) => {
                 let opos = odom.position();
                 let diff = [pos[0] - opos[0], pos[1] - opos[1]];
                 let target_heading = diff[1].atan2(diff[0]);
                 let len = (diff[0].powi(2) + diff[1].powi(2)).sqrt();
-                self.segments[self.current_segment] = MinSegment::MoveRel(len);
-                self.segments
-                    .insert(self.current_segment, MinSegment::TurnTo(target_heading));
+                self.seg_buf.push_back(ProcessedSegment::TurnTo {
+                    start_heading: heading,
+                    target_heading: Self::optimise_target_heading(heading, target_heading),
+                });
+                self.seg_buf.push_back(ProcessedSegment::MoveRel {
+                    start: opos,
+                    end: pos,
+                    dist: len,
+                });
             }
             _ => {}
         }
-        log::info!(
-            "Starting segment: {:?}",
-            self.segments[self.current_segment]
-        );
     }
-    pub fn follow(&self, odom: &Odometry) -> [f64; 2] {
-        if self.ended {
+    /// start_follow will set any state required for
+    /// pathing to work properly, for instance this
+    /// will set the angle PID for TurnTo
+    /// only TurnTo and MoveRel branches should be reachable
+    /// as this method should be called after transform_segment
+    fn start_follow(&mut self, odom: &Odometry) {
+        match self.seg_buf.pop_back() {
+            Some(ProcessedSegment::TurnTo { target_heading, .. }) => {
+                self.angle_pid.set_target(target_heading);
+                self.angle_pid.reset();
+            }
+            Some(ProcessedSegment::MoveRel { .. }) => {
+                todo!()
+            }
+            None => unreachable!(),
+        }
+    }
+    pub fn follow(&mut self, odom: &Odometry) -> [f64; 2] {
+        /*if self.state == RouteState::Finished {
             return [0.0, 0.0];
         }
+
+        if self.current_segment >= self.segments.len() {
+            self.state = RouteState::Finished;
+            return [0.0, 0.0];
+        }
+
+        if self.state == RouteState::SegmentStart {
+            self.transform_segments(odom);
+            self.start_follow(odom);
+        }*/
+        if self.current_segment >= self.segments.len() && self.cur_seg.is_none() {
+            return [0.0; 2];
+        }
+
+        if self.seg_buf.is_empty() {
+            self.transform_segments(odom);
+            self.current_segment += 1;
+        }
+
         let pos = odom.position();
         let heading = odom.heading();
 
-        let current_segment = &self.segments[self.current_segment];
-
+        let Some(current_segment) = &self.cur_seg else {
+            unreachable!()
+        };
         // check end condition
+        // the end condition for turning is an absolute error of < 2 deg
+        // and angular speed of < 1 deg/s
+        // the end conditon for a relative (forward movement) is
+        // 1: early exit when the distance from the nearest point on the
+        // path is more then xcm, from there add a MoveTo(end_point)
+        // 2: velocity < 1cm/s and distance from end point < xcm
+        // note: the velocity should be low due to a trapezoidal profile
         match current_segment {
-            MinSegment::MoveTo(npos) => {
-                todo!()
+            ProcessedSegment::TurnTo { target_heading, .. }
+                if (heading - target_heading).abs() < 2f64.to_radians()
+                    && odom.angular_velocity().abs() < 1f64.to_radians() =>
+            {
+                log::info!(
+                    "Finished segment {} - TurnTo({}).",
+                    self.current_segment,
+                    target_heading
+                );
+                self.current_segment += 1;
+                self.state = RouteState::SegmentStart;
+                return self.follow(odom);
             }
-            MinSegment::TurnTo(nheading) => {}
+            ProcessedSegment::MoveRel { .. } => {}
             _ => {}
         }
 
         // follow segement
-
-        todo!()
+        // for a turning segment this is a simple as setting
+        // the target for the angle pid and taking the output
+        // from PID::poll() into the drivetrain
+        // for a relative move segment we need to find the
+        // closest point on the relative line segement
+        // we then use the trapezoidal profile to figure out what velocity
+        // we need to set the motors to. Since we don't have lateral control
+        // this just sends equal power to both sides but this will change
+        // when pure pursuit gets added
+        match current_segment {
+            ProcessedSegment::TurnTo { .. } => {
+                let pow = self.angle_pid.poll(heading);
+                [pow, -pow]
+            }
+            ProcessedSegment::MoveRel { .. } => todo!(),
+        }
     }
+}
+
+fn velocity_profile(start: [f64; 2], end: [f64; 2], pos: [f64; 2]) -> f64 {
+    let dist_end = ((pos[0] - end[0]).powi(2) + (pos[1] - end[1]).powi(2)).sqrt();
+    let dist_start = ((pos[0] - start[0]).powi(2) + (pos[1] - start[1]).powi(2)).sqrt();
+    let percent_complete = dist_start / (dist_start + dist_end);
+    todo!()
 }
