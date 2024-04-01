@@ -13,14 +13,6 @@ use std::f64::consts::{PI, TAU};
 /// a MinSegment it gets turned into a ProcessedSegment which
 /// contains state needed to follow the "segment"
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum RouteState {
-    #[default]
-    SegmentStart,
-    SegmentFollowing,
-    Finished,
-}
-
 #[derive(Debug, Clone, Copy)]
 enum MinSegment {
     MoveTo([f64; 2]),
@@ -47,7 +39,6 @@ struct Route {
     segments: Vec<MinSegment>,
     seg_buf: VecDeque<ProcessedSegment>,
     cur_seg: Option<ProcessedSegment>,
-    state: RouteState,
     angle_pid: Pid,
 }
 
@@ -100,7 +91,6 @@ impl Route {
             prev_pos: [0.0; 2],
             seg_buf: VecDeque::new(),
             cur_seg: None,
-            state: RouteState::default(),
             angle_pid: Pid::new(0.35, 0.035, 2.2),
         }
     }
@@ -168,48 +158,38 @@ impl Route {
     /// will set the angle PID for TurnTo
     /// only TurnTo and MoveRel branches should be reachable
     /// as this method should be called after transform_segment
-    fn start_follow(&mut self, odom: &Odometry) {
-        match self.seg_buf.pop_back() {
+    fn start_follow(&mut self) {
+        self.cur_seg = self.seg_buf.pop_back();
+        match self.cur_seg {
             Some(ProcessedSegment::TurnTo { target_heading, .. }) => {
                 self.angle_pid.set_target(target_heading);
                 self.angle_pid.reset();
             }
-            Some(ProcessedSegment::MoveRel { .. }) => {
-                todo!()
-            }
+            Some(ProcessedSegment::MoveRel { .. }) => {}
             None => unreachable!(),
         }
     }
+
     pub fn follow(&mut self, odom: &Odometry) -> [f64; 2] {
-        /*if self.state == RouteState::Finished {
-            return [0.0, 0.0];
+        // if there isn't a started segment start one or
+        // exist if the route has ended
+        if self.cur_seg.is_none() {
+            if self.seg_buf.is_empty() {
+                if self.current_segment < self.segments.len() {
+                    self.transform_segments(odom);
+                    self.current_segment += 1;
+                } else {
+                    return [0.0, 0.0];
+                }
+            }
+
+            self.start_follow();
         }
 
-        if self.current_segment >= self.segments.len() {
-            self.state = RouteState::Finished;
-            return [0.0, 0.0];
-        }
+        let current_segment = self.cur_seg.as_ref().unwrap();
 
-        if self.state == RouteState::SegmentStart {
-            self.transform_segments(odom);
-            self.start_follow(odom);
-        }*/
-        if self.current_segment >= self.segments.len() && self.cur_seg.is_none() {
-            return [0.0; 2];
-        }
-
-        if self.seg_buf.is_empty() {
-            self.transform_segments(odom);
-            self.current_segment += 1;
-        }
-
-        let pos = odom.position();
-        let heading = odom.heading();
-
-        let Some(current_segment) = &self.cur_seg else {
-            unreachable!()
-        };
-        // check end condition
+        // check if the current segment is finished
+        // and start another one if that is the case
         // the end condition for turning is an absolute error of < 2 deg
         // and angular speed of < 1 deg/s
         // the end conditon for a relative (forward movement) is
@@ -219,7 +199,7 @@ impl Route {
         // note: the velocity should be low due to a trapezoidal profile
         match current_segment {
             ProcessedSegment::TurnTo { target_heading, .. }
-                if (heading - target_heading).abs() < 2f64.to_radians()
+                if (odom.heading() - target_heading).abs() < 2f64.to_radians()
                     && odom.angular_velocity().abs() < 1f64.to_radians() =>
             {
                 log::info!(
@@ -227,15 +207,14 @@ impl Route {
                     self.current_segment,
                     target_heading
                 );
-                self.current_segment += 1;
-                self.state = RouteState::SegmentStart;
+                self.cur_seg = None;
                 return self.follow(odom);
             }
-            ProcessedSegment::MoveRel { .. } => {}
+            ProcessedSegment::MoveRel { .. } => todo!(),
             _ => {}
         }
 
-        // follow segement
+        // actually follow the segement
         // for a turning segment this is a simple as setting
         // the target for the angle pid and taking the output
         // from PID::poll() into the drivetrain
@@ -247,7 +226,7 @@ impl Route {
         // when pure pursuit gets added
         match current_segment {
             ProcessedSegment::TurnTo { .. } => {
-                let pow = self.angle_pid.poll(heading);
+                let pow = self.angle_pid.poll(odom.heading());
                 [pow, -pow]
             }
             ProcessedSegment::MoveRel { .. } => todo!(),
