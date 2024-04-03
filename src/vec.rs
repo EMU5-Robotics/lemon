@@ -58,8 +58,24 @@ impl<T: Into<f64>> Div<T> for Vec2 {
         Vec2([self.x() / rhs, self.y() / rhs])
     }
 }
-impl<T: Into<[f64; 2]>> From<T> for Vec2 {
-    fn from(v: T) -> Self {
-        Self(v.into())
+impl From<[f64; 2]> for Vec2 {
+    fn from(v: [f64; 2]) -> Self {
+        Self(v)
+    }
+}
+impl From<&[f64; 2]> for Vec2 {
+    fn from(v: &[f64; 2]) -> Self {
+        Self(*v)
+    }
+}
+
+impl From<(f64, f64)> for Vec2 {
+    fn from(v: (f64, f64)) -> Self {
+        Self([v.0, v.1])
+    }
+}
+impl From<&(f64, f64)> for Vec2 {
+    fn from(v: &(f64, f64)) -> Self {
+        Self([v.0, v.1])
     }
 }

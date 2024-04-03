@@ -2,6 +2,7 @@ use communication::path::Action;
 
 use crate::odom::Odometry;
 use crate::pid::Pid;
+use crate::vec::Vec2;
 
 use std::collections::VecDeque;
 use std::f64::consts::{PI, TAU};
@@ -108,49 +109,51 @@ impl Route {
         }
         heading + delta
     }
-    /// transform_segments will transform paths
+    /// transform_segment will transform paths
     /// into other using paths i.e. MoveTo -> TurnTo + MoveRel
     /// or TurnRel to TurnTo as the robot can currently
     /// only deal with relative (straight) movement and
     /// absolute turns (though this might change soon with
     /// regards to the absolute headings)
-    fn transform_segments(&mut self, odom: &Odometry) {
+    fn transform_segment(&self, segment: &MinSegment, odom: &Odometry) -> Vec<ProcessedSegment> {
         // use MoveRel until lateral control exists use MoveRel
         let heading = odom.heading();
-        match self.segments[self.current_segment] {
+        match segment {
             // note that this allows a suboptimal turn but
             // such a turn is likely to be intentional
             // unlike with TurnTo
             MinSegment::TurnRel(rel) => {
-                self.seg_buf.push_back(ProcessedSegment::TurnTo {
+                vec![ProcessedSegment::TurnTo {
                     start_heading: heading,
                     target_heading: heading + rel,
-                });
+                }]
             }
             // ensure TurnTo takes most optimal turn
             // (don't turn more then half a turn)
             MinSegment::TurnTo(target) => {
-                self.seg_buf.push_back(ProcessedSegment::TurnTo {
+                vec![ProcessedSegment::TurnTo {
                     start_heading: heading,
-                    target_heading: Self::optimise_target_heading(heading, target),
-                });
+                    target_heading: Self::optimise_target_heading(heading, *target),
+                }]
             }
             MinSegment::MoveTo(pos) => {
                 let opos = odom.position();
                 let diff = [pos[0] - opos[0], pos[1] - opos[1]];
                 let target_heading = diff[1].atan2(diff[0]);
                 let len = (diff[0].powi(2) + diff[1].powi(2)).sqrt();
-                self.seg_buf.push_back(ProcessedSegment::TurnTo {
-                    start_heading: heading,
-                    target_heading: Self::optimise_target_heading(heading, target_heading),
-                });
-                self.seg_buf.push_back(ProcessedSegment::MoveRel {
-                    start: opos,
-                    end: pos,
-                    dist: len,
-                });
+                vec![
+                    ProcessedSegment::TurnTo {
+                        start_heading: heading,
+                        target_heading: Self::optimise_target_heading(heading, target_heading),
+                    },
+                    ProcessedSegment::MoveRel {
+                        start: opos,
+                        end: *pos,
+                        dist: len,
+                    },
+                ]
             }
-            _ => {}
+            _ => vec![],
         }
     }
     /// start_follow will set any state required for
@@ -176,7 +179,9 @@ impl Route {
         if self.cur_seg.is_none() {
             if self.seg_buf.is_empty() {
                 if self.current_segment < self.segments.len() {
-                    self.transform_segments(odom);
+                    let new_segs =
+                        self.transform_segment(&self.segments[self.current_segment], odom);
+                    self.seg_buf.extend(new_segs);
                     self.current_segment += 1;
                 } else {
                     return [0.0, 0.0];
@@ -186,7 +191,7 @@ impl Route {
             self.start_follow();
         }
 
-        let current_segment = self.cur_seg.as_ref().unwrap();
+        let current_segment = &self.cur_seg.as_ref().unwrap();
 
         // check if the current segment is finished
         // and start another one if that is the case
@@ -194,10 +199,11 @@ impl Route {
         // and angular speed of < 1 deg/s
         // the end conditon for a relative (forward movement) is
         // 1: early exit when the distance from the nearest point on the
-        // path is more then xcm, from there add a MoveTo(end_point)
-        // 2: velocity < 1cm/s and distance from end point < xcm
+        // path is more then 5cm, from there add a MoveTo segment
+        // 2: velocity < 1cm/s and distance from end point < 5cm
         // note: the velocity should be low due to a trapezoidal profile
-        // 3: facing more then += 3 deg away from target
+        // 3: facing more then += 3 deg away from target, from there add
+        // a MoveTo segment
         match current_segment {
             ProcessedSegment::TurnTo { target_heading, .. }
                 if (odom.heading() - target_heading).abs() < 2f64.to_radians()
@@ -211,7 +217,61 @@ impl Route {
                 self.cur_seg = None;
                 return self.follow(odom);
             }
-            ProcessedSegment::MoveRel { .. } => todo!(),
+            ProcessedSegment::MoveRel { start, end, .. } => {
+                let ideal_heading = (end[1] - start[1]).atan2(end[0] - start[0]);
+                // check heading is within +-3 deg
+                if (odom.heading() - ideal_heading).abs() > 3f64.to_radians() {
+                    for seg in self
+                        .transform_segment(&MinSegment::MoveTo(*end), odom)
+                        .into_iter()
+                        .rev()
+                    {
+                        self.seg_buf.push_front(seg)
+                    }
+                    self.cur_seg = None;
+                    return self.follow(odom);
+                }
+
+                // check if distance from closest point is greater then 5cm
+                // We can get this distance from finding the height of the triangle
+                // with the base defined by [start, end] and the third point at pos.
+                // From there we can find the area with herons formula and then
+                // solve for the height from the base length and area.
+                let end: Vec2 = end.into();
+                let start: Vec2 = start.into();
+                let pos: Vec2 = odom.position().into();
+                let base = (end - start).mag();
+                let end_dist = (end - pos).mag();
+                let start_dist = (start - pos).mag();
+                let s = (end_dist + start_dist + base) * 0.5;
+                let area = (s * (s - end_dist) * (s - start_dist) * (s - base)).sqrt();
+                if (2.0 * area / base) < 0.05 {
+                    for seg in self
+                        .transform_segment(&MinSegment::MoveTo([end.x(), end.y()]), odom)
+                        .into_iter()
+                        .rev()
+                    {
+                        self.seg_buf.push_front(seg)
+                    }
+                    self.cur_seg = None;
+                    return self.follow(odom);
+                }
+
+                // finish the segment if distance to end point is less then
+                // 5cm and (average side) velocity is < 1cm/s
+                if 0.5 * (odom.side_velocities()[0] + odom.side_velocities()[1]) < 0.01
+                    && end_dist < 0.05
+                {
+                    log::info!(
+                        "Finished segment {} - MoveRel(start: {:?}, end: {:?}).",
+                        self.current_segment,
+                        start,
+                        end
+                    );
+                    self.cur_seg = None;
+                    return self.follow(odom);
+                }
+            }
             _ => {}
         }
 
@@ -230,13 +290,21 @@ impl Route {
                 let pow = self.angle_pid.poll(odom.heading());
                 [pow, -pow]
             }
-            ProcessedSegment::MoveRel { .. } => todo!(),
+            ProcessedSegment::MoveRel { start, end, dist } => {
+                let pow = velocity_profile(start.into(), end.into(), *dist, odom.position().into());
+                [pow; 2]
+            }
         }
     }
 }
 
-const ACEL_TIME: f64 = 1.5;
-const ACEL: f64 = 1.0 / ACEL_TIME;
+// time to get to accelerate to max velocity from zero
+// decelerating should be quicker then acceleration
+// due to braking but since we have a symmetrical profile
+// (partially for stability in deccelerate) we use acceleration
+// time rather then adopt an asymmetrical model
+const ACCEL_TIME: f64 = 1.5;
+const ACCEL: f64 = 1.0 / ACCEL_TIME;
 
 // velocity profile for straight paths based the scalar projection
 // of pos vec2 onto end vec2 relative to start. It is a modified
@@ -248,14 +316,8 @@ const ACEL: f64 = 1.0 / ACEL_TIME;
 // v = sqrt(2da)
 // velocity and acceleration are scaled such that v = 1 is the max
 // velocity
-fn velocity_profile(start: [f64; 2], end: [f64; 2], pos: [f64; 2]) -> f64 {
-    use crate::vec::Vec2;
-    let start: Vec2 = start.into();
-    let end: Vec2 = end.into();
-    let pos: Vec2 = pos.into();
-
-    // first we find the project distance along the path
-    let path_dist = (end - start).mag();
+fn velocity_profile(start: Vec2, end: Vec2, path_dist: f64, pos: Vec2) -> f64 {
+    // first we find the projected distance along the path
     let proj_norm = (end - start) / path_dist;
     let path = pos - start;
     let dist = path.dot(proj_norm);
@@ -263,12 +325,15 @@ fn velocity_profile(start: [f64; 2], end: [f64; 2], pos: [f64; 2]) -> f64 {
     // we then get the distance from the closest end
     let halfway = 0.5 * path_dist;
     let from_hw = (halfway - dist).abs();
+    // if the dist is negative or longer then the path
+    // clamp it to the ends
     let from_closest_end = (halfway - from_hw).max(0.0);
 
     // we then convert that to a velocity and cap it at the max velocity
-    let mut velocity = (2.0 * from_closest_end * ACEL).sqrt().min(1.0);
+    let mut velocity = (2.0 * from_closest_end * ACCEL).sqrt().min(1.0);
     if dist < halfway {
-        // note we don't allow for zero velocity near the start of the path
+        // we don't allow for zero velocity near the start of the path
+        // as that would stall the robot instead we opt for 10% of max speed
         velocity = velocity.max(0.1);
     }
     velocity
