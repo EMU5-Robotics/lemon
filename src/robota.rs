@@ -7,6 +7,7 @@ mod odom;
 mod path;
 mod pid;
 mod robot;
+mod vec;
 
 use brain::Brain;
 use communication::{

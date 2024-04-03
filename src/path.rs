@@ -197,6 +197,7 @@ impl Route {
         // path is more then xcm, from there add a MoveTo(end_point)
         // 2: velocity < 1cm/s and distance from end point < xcm
         // note: the velocity should be low due to a trapezoidal profile
+        // 3: facing more then += 3 deg away from target
         match current_segment {
             ProcessedSegment::TurnTo { target_heading, .. }
                 if (odom.heading() - target_heading).abs() < 2f64.to_radians()
@@ -234,9 +235,41 @@ impl Route {
     }
 }
 
+const ACEL_TIME: f64 = 1.5;
+const ACEL: f64 = 1.0 / ACEL_TIME;
+
+// velocity profile for straight paths based the scalar projection
+// of pos vec2 onto end vec2 relative to start. It is a modified
+// trapezoid profile (where it does not start quite at zero to avoid
+// stalling due targeting a velocity of zero)
+// note since a trapezoid shape with velocity with respect to time
+// is not a trapezoid shape with velocity respect to distance
+// rather then having linear sides (v = at) we have a square root
+// v = sqrt(2da)
+// velocity and acceleration are scaled such that v = 1 is the max
+// velocity
 fn velocity_profile(start: [f64; 2], end: [f64; 2], pos: [f64; 2]) -> f64 {
-    let dist_end = ((pos[0] - end[0]).powi(2) + (pos[1] - end[1]).powi(2)).sqrt();
-    let dist_start = ((pos[0] - start[0]).powi(2) + (pos[1] - start[1]).powi(2)).sqrt();
-    let percent_complete = dist_start / (dist_start + dist_end);
-    todo!()
+    use crate::vec::Vec2;
+    let start: Vec2 = start.into();
+    let end: Vec2 = end.into();
+    let pos: Vec2 = pos.into();
+
+    // first we find the project distance along the path
+    let path_dist = (end - start).mag();
+    let proj_norm = (end - start) / path_dist;
+    let path = pos - start;
+    let dist = path.dot(proj_norm);
+
+    // we then get the distance from the closest end
+    let halfway = 0.5 * path_dist;
+    let from_hw = (halfway - dist).abs();
+    let from_closest_end = (halfway - from_hw).max(0.0);
+
+    // we then convert that to a velocity and cap it at the max velocity
+    let mut velocity = (2.0 * from_closest_end * ACEL).sqrt().min(1.0);
+    if dist < halfway {
+        // note we don't allow for zero velocity near the start of the path
+        velocity = velocity.max(0.1);
+    }
+    velocity
 }
