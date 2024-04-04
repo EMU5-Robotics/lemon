@@ -17,11 +17,12 @@ use std::f64::consts::{PI, TAU};
 #[derive(Debug, Clone, Copy)]
 enum MinSegment {
     MoveTo([f64; 2]),
-    MoveRel((f64, [f64; 2], [f64; 2])),
+    MoveRel(f64),
     TurnTo(f64),
     TurnRel(f64),
 }
 
+#[derive(Debug)]
 enum ProcessedSegment {
     MoveRel {
         start: [f64; 2],
@@ -34,9 +35,8 @@ enum ProcessedSegment {
     },
 }
 
-struct Route {
+pub struct Route {
     current_segment: usize,
-    prev_pos: [f64; 2],
     segments: Vec<MinSegment>,
     seg_buf: VecDeque<ProcessedSegment>,
     cur_seg: Option<ProcessedSegment>,
@@ -44,24 +44,24 @@ struct Route {
 }
 
 impl Route {
-    pub fn new(actions: Vec<Action>) -> Self {
+    pub fn new(actions: &[Action]) -> Self {
         let mut pos = [0.0, 0.0];
         let mut heading = 0.0;
         let mut minpaths = Vec::new();
         use communication::path::Action::*;
-        for action in actions.into_iter() {
+        for action in actions {
             match action {
                 StartAt {
                     pos: npos,
                     heading: nheading,
                 } => {
-                    pos = npos;
-                    heading = nheading;
+                    pos = *npos;
+                    heading = *nheading;
                 }
                 MoveRel { rel } => {
                     let (s, c) = heading.sin_cos();
                     pos = [pos[0] + rel * c, pos[1] + rel * s];
-                    minpaths.push(MinSegment::MoveRel((rel, [0.0; 2], [0.0; 2])));
+                    minpaths.push(MinSegment::MoveRel(*rel));
                 }
                 MoveRelAbs { rel } => {
                     let (s, c) = heading.sin_cos();
@@ -69,19 +69,19 @@ impl Route {
                     minpaths.push(MinSegment::MoveTo(pos));
                 }
                 MoveTo { pos: npos } => {
-                    pos = npos;
-                    minpaths.push(MinSegment::MoveTo(npos));
+                    pos = *npos;
+                    minpaths.push(MinSegment::MoveTo(*npos));
                 }
                 TurnRel { angle } => {
                     heading += angle;
-                    minpaths.push(MinSegment::TurnRel(angle));
+                    minpaths.push(MinSegment::TurnRel(*angle));
                 }
                 TurnRelAbs { angle } => {
                     heading += angle;
                     minpaths.push(MinSegment::TurnTo(heading));
                 }
                 TurnTo { heading: nheading } => {
-                    heading = nheading;
+                    heading = *nheading;
                     minpaths.push(MinSegment::TurnTo(heading));
                 }
             }
@@ -89,7 +89,6 @@ impl Route {
         Self {
             current_segment: 0,
             segments: minpaths,
-            prev_pos: [0.0; 2],
             seg_buf: VecDeque::new(),
             cur_seg: None,
             angle_pid: Pid::new(0.35, 0.035, 2.2),
@@ -153,7 +152,14 @@ impl Route {
                     },
                 ]
             }
-            _ => vec![],
+            MinSegment::MoveRel(rel) => {
+                let opos = odom.position();
+                vec![ProcessedSegment::MoveRel {
+                    start: opos,
+                    end: [opos[0] + heading.cos() * rel, opos[1] + heading.sin() * rel],
+                    dist: *rel,
+                }]
+            }
         }
     }
     /// start_follow will set any state required for
@@ -163,6 +169,7 @@ impl Route {
     /// as this method should be called after transform_segment
     fn start_follow(&mut self) {
         self.cur_seg = self.seg_buf.pop_back();
+        log::info!("New seg started: {:?}", self.cur_seg);
         match self.cur_seg {
             Some(ProcessedSegment::TurnTo { target_heading, .. }) => {
                 self.angle_pid.set_target(target_heading);
@@ -228,6 +235,7 @@ impl Route {
                     {
                         self.seg_buf.push_front(seg)
                     }
+                    log::warn!("MoveRel failed due to exceeding a +- 3deg heading. Creating MoveTo segment.");
                     self.cur_seg = None;
                     return self.follow(odom);
                 }
@@ -253,6 +261,7 @@ impl Route {
                     {
                         self.seg_buf.push_front(seg)
                     }
+                    log::warn!("Distance from closest point exceeds 5cm. Creating MoveTo segment.");
                     self.cur_seg = None;
                     return self.follow(odom);
                 }

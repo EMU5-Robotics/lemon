@@ -98,14 +98,21 @@ impl Robot {
         }
     }
     pub fn main_loop(&mut self) -> ! {
+        use communication::path::Action;
+        use std::f64::consts::*;
         let mut is_pid = false;
+        let auton_path = [
+            Action::TurnRelAbs { angle: FRAC_PI_4 },
+            Action::TurnRelAbs { angle: -FRAC_PI_4 },
+            Action::MoveRel { rel: 1.0 },
+            Action::TurnTo { heading: FRAC_PI_2 },
+        ];
+        let mut auton_path = crate::path::Route::new(&auton_path);
         loop {
             self.handle_events();
 
             // updates controller, robot state & motors
-            let new_state = self
-                .brain
-                .update_state(&mut self.controller, &mut self.state);
+            let new_state = self.brain.update_state(&mut self.controller, &self.state);
             if new_state != self.state {
                 log::info!("State changed from {:?} to {new_state:?}", self.state);
 
@@ -118,7 +125,7 @@ impl Robot {
 
             match self.state {
                 RobotState::Off | RobotState::Disabled => {}
-                RobotState::AutonSkills => self.auton_skills(),
+                RobotState::AutonSkills => self.auton_skills(&mut auton_path),
                 RobotState::DriverAuton => {}
                 RobotState::DriverSkills => {
                     self.driver(&mut is_pid);
@@ -160,8 +167,11 @@ impl Robot {
         std::thread::sleep(Duration::from_millis(1));
     }
 
-    fn auton_skills(&mut self) {
+    fn auton_skills(&mut self, route: &mut crate::path::Route) {
         communication::odom(self.odom.position(), self.odom.heading());
+
+        let [l, r] = route.follow(&self.odom);
+        self.drivebase.set_side_percent_max_rpm(l, r, 200.0);
 
         self.brain.write_changes();
         std::thread::sleep(std::time::Duration::from_millis(1));
