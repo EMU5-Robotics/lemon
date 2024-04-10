@@ -38,7 +38,7 @@ enum ProcessedSegment {
 pub struct Route {
     current_segment: usize,
     segments: Vec<MinSegment>,
-    seg_buf: VecDeque<ProcessedSegment>,
+    seg_buf: Vec<ProcessedSegment>,
     cur_seg: Option<ProcessedSegment>,
     angle_pid: Pid,
 }
@@ -89,7 +89,7 @@ impl Route {
         Self {
             current_segment: 0,
             segments: minpaths,
-            seg_buf: VecDeque::new(),
+            seg_buf: Vec::new(),
             cur_seg: None,
             angle_pid: Pid::new(0.35, 0.035, 2.2),
         }
@@ -114,6 +114,11 @@ impl Route {
     /// only deal with relative (straight) movement and
     /// absolute turns (though this might change soon with
     /// regards to the absolute headings)
+    /// NOTE - segments are returned in reverse order
+    /// so that when you extend the seg_buf with the
+    /// returned vector it is in the correct order
+    /// for when the next segment is popped from
+    /// the BACK of the seg_buf
     fn transform_segment(&self, segment: &MinSegment, odom: &Odometry) -> Vec<ProcessedSegment> {
         // use MoveRel until lateral control exists use MoveRel
         let heading = odom.heading();
@@ -140,15 +145,16 @@ impl Route {
                 let diff = [pos[0] - opos[0], pos[1] - opos[1]];
                 let target_heading = diff[1].atan2(diff[0]);
                 let len = (diff[0].powi(2) + diff[1].powi(2)).sqrt();
+                // note order is reversed
                 vec![
-                    ProcessedSegment::TurnTo {
-                        start_heading: heading,
-                        target_heading: Self::optimise_target_heading(heading, target_heading),
-                    },
                     ProcessedSegment::MoveRel {
                         start: opos,
                         end: *pos,
                         dist: len,
+                    },
+                    ProcessedSegment::TurnTo {
+                        start_heading: heading,
+                        target_heading: Self::optimise_target_heading(heading, target_heading),
                     },
                 ]
             }
@@ -168,7 +174,7 @@ impl Route {
     /// only TurnTo and MoveRel branches should be reachable
     /// as this method should be called after transform_segment
     fn start_follow(&mut self) {
-        self.cur_seg = self.seg_buf.pop_back();
+        self.cur_seg = self.seg_buf.pop();
         log::info!("New seg started: {:?}", self.cur_seg);
         match self.cur_seg {
             Some(ProcessedSegment::TurnTo { target_heading, .. }) => {
@@ -228,13 +234,8 @@ impl Route {
                 let ideal_heading = (end[1] - start[1]).atan2(end[0] - start[0]);
                 // check heading is within +-3 deg
                 if (odom.heading() - ideal_heading).abs() > 3f64.to_radians() {
-                    for seg in self
-                        .transform_segment(&MinSegment::MoveTo(*end), odom)
-                        .into_iter()
-                        .rev()
-                    {
-                        self.seg_buf.push_front(seg)
-                    }
+                    let new_segs = self.transform_segment(&MinSegment::MoveTo(*end), odom);
+                    self.seg_buf.extend(new_segs);
                     log::warn!("MoveRel failed due to exceeding a +- 3deg heading. Creating MoveTo segment.");
                     self.cur_seg = None;
                     return self.follow(odom);
@@ -254,13 +255,9 @@ impl Route {
                 let s = (end_dist + start_dist + base) * 0.5;
                 let area = (s * (s - end_dist) * (s - start_dist) * (s - base)).sqrt();
                 if (2.0 * area / base) < 0.05 {
-                    for seg in self
-                        .transform_segment(&MinSegment::MoveTo([end.x(), end.y()]), odom)
-                        .into_iter()
-                        .rev()
-                    {
-                        self.seg_buf.push_front(seg)
-                    }
+                    let new_segs =
+                        self.transform_segment(&MinSegment::MoveTo([end.x(), end.y()]), odom);
+                    self.seg_buf.extend(new_segs);
                     log::warn!("Distance from closest point exceeds 5cm. Creating MoveTo segment.");
                     self.cur_seg = None;
                     return self.follow(odom);
@@ -297,7 +294,7 @@ impl Route {
         match current_segment {
             ProcessedSegment::TurnTo { .. } => {
                 let pow = self.angle_pid.poll(odom.heading());
-                [pow, -pow]
+                [-pow, pow]
             }
             ProcessedSegment::MoveRel { start, end, dist } => {
                 let pow = velocity_profile(start.into(), end.into(), *dist, odom.position().into());
