@@ -161,8 +161,6 @@ impl Odometry {
             let right_vel = right - self.last_pos[1];
             let (left_vel, right_vel) = (left_vel / dur, right_vel / dur);
             self.velocity = [left_vel, right_vel];
-            //plot!("velocities", "leftd", self.velocity[0]);
-            //plot!("velocities", "rightd", self.velocity[1]);
             self.last_pos = [left, right];
         } else {
             self.first_update = false;
@@ -232,50 +230,10 @@ impl Odometry {
             .sum::<f64>()
             / denom;
         if !x.is_nan() && !y.is_nan() {
-            /*use communication::plot;
-            plot!("velocities", "real", self.velocity);
-            plot!("velocities", "smoothed", [x, y]);
-            plot!(
-                "velocities",
-                "delta",
-                [self.velocity[0] - x, self.velocity[1] - y]
-            );*/
-
             return [x, y];
         }
         self.velocity
     }
-    /*pub fn side_velocities_quad_reg(&self) -> [f64; 2] {
-        let start = self.last_10_times[0];
-        let times: Vec<_> = self
-            .last_10_times
-            .iter()
-            .map(|v| v.duration_since(start).as_secs_f64())
-            .collect();
-        let avg_time = times.iter().sum::<f64>() * INV_NUM_LIN;
-        let denom = times.iter().map(|v| (v - avg_time).powi(2)).sum::<f64>();
-
-        let avg_x = self.last_10_vals.iter().map(|v| v[0]).sum::<f64>() * INV_NUM_LIN;
-        let avg_y = self.last_10_vals.iter().map(|v| v[1]).sum::<f64>() * INV_NUM_LIN;
-        let avg_x_sq = self.last_10_vals.iter().map(|v| v[0].powi(2)).sum::<f64>() * INV_NUM_LIN;
-        let avg_y_sq = self.last_10_vals.iter().map(|v| v[1].powi(2)).sum::<f64>() * INV_NUM_LIN;
-        let x =
-            self.last_10_vals
-                .iter()
-                .zip(times.iter())
-                .map(|(v, t)| (v[0] - avg_x) * (t - avg_time))
-                .sum::<f64>() / denom;
-        let y =
-            self.last_10_vals
-                .iter()
-                .zip(times.iter())
-                .map(|(v, t)| (v[1] - avg_y) * (t - avg_time))
-                .sum::<f64>() / denom;
-        if !x.is_nan() && !y.is_nan() {
-            return [x, y];
-        }
-        self.velocity
-    }*/
     pub fn reset(&mut self) {
         self.imu.reset()
     }

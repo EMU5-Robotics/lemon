@@ -100,7 +100,8 @@ impl Robot {
     pub fn main_loop(&mut self) -> ! {
         use communication::path::Action;
         use std::f64::consts::*;
-        let mut is_pid = false;
+        let mut tuning_start = std::time::Instant::now();
+        let mut start_heading = 0.0;
         let auton_path = [
             Action::TurnRelAbs { angle: FRAC_PI_4 },
             Action::TurnRelAbs { angle: -FRAC_PI_4 },
@@ -128,15 +129,15 @@ impl Robot {
                 RobotState::AutonSkills => self.auton_skills(&mut auton_path),
                 RobotState::DriverAuton => {}
                 RobotState::DriverSkills => {
-                    self.driver(&mut is_pid);
+                    self.driver(&mut tuning_start, &mut start_heading);
                 }
                 RobotState::DriverDriver => {
-                    self.driver(&mut is_pid);
+                    self.driver(&mut tuning_start, &mut start_heading);
                 }
             }
         }
     }
-    fn driver(&mut self, is_pid: &mut bool) {
+    fn driver(&mut self, tuning_start: &mut std::time::Instant, start_heading: &mut f64) {
         self.odom.calc_position();
 
         communication::odom(self.odom.position(), self.odom.heading());
@@ -160,8 +161,28 @@ impl Robot {
             r = pw;
         }
 
-        // for some reason the gearbox doesn't set properly
-        self.drivebase.set_side_percent_max_rpm(l, r, 200.0);
+        if self.controller.pressed(ControllerButtons::B) {
+            *start_heading = self.odom.heading();
+            *tuning_start = std::time::Instant::now();
+            log::info!(
+                "PID tuning started with heading: {} ({}deg)",
+                start_heading,
+                start_heading.to_degrees()
+            );
+        } else if self.controller.released(ControllerButtons::B) {
+            let grad =
+                (self.odom.heading() - *start_heading) / tuning_start.elapsed().as_secs_f64();
+            log::info!(
+                "PID tuning finished with drift of {grad} ({}deg).",
+                grad.to_degrees()
+            );
+        }
+
+        // prevent the robot from moving when "tuning" the IMU
+        if !self.controller.held(ControllerButtons::B) {
+            // for some reason the gearbox doesn't set properly
+            self.drivebase.set_side_percent_max_rpm(l, r, 200.0);
+        }
 
         self.brain.write_changes();
         std::thread::sleep(Duration::from_millis(1));
