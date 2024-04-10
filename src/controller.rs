@@ -60,4 +60,10 @@ impl Controller {
         // matches current pkt but not last
         !Self::bit_matches(button, self.last) && Self::bit_matches(button, self.current)
     }
+    // we update last to current to avoid problems where since
+    // the brain updates slower we handle release/pressed code
+    // multiple times
+    pub fn update_no_change(&mut self) {
+        self.last = self.current;
+    }
 }

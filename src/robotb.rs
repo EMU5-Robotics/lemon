@@ -80,9 +80,7 @@ impl Robot {
             self.handle_events();
 
             // updates controller, robot state & motors
-            let new_state = self
-                .brain
-                .update_state(&mut self.controller, &mut self.state);
+            let new_state = self.brain.update_state(&mut self.controller, &self.state);
             if new_state != self.state {
                 log::info!("State changed from {:?} to {new_state:?}", self.state);
             }

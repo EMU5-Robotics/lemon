@@ -114,6 +114,8 @@ impl Brain {
 
             RobotState::from_brain_state(self.pkt_buffer[0].brain_state)
         } else {
+            // remove pressed/removed states to avoid handling them multiple times
+            controller.update_no_change();
             if self.last_update.elapsed() > crate::BRAIN_TIMEOUT && *robot_state != RobotState::Off
             {
                 log::warn!("Connection to the brain has been lost.");
