@@ -137,6 +137,8 @@ impl Robot {
             }
             self.state = new_state;
 
+            self.odom.calc_position();
+
             match self.state {
                 RobotState::Off | RobotState::Disabled => {}
                 RobotState::AutonSkills => self.auton_skills(&mut auton_path),
@@ -148,11 +150,11 @@ impl Robot {
                     self.driver(&mut tuning_start, &mut start_heading);
                 }
             }
+            self.brain.write_changes();
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
     }
     fn driver(&mut self, tuning_start: &mut std::time::Instant, start_heading: &mut f64) {
-        self.odom.calc_position();
-
         communication::odom(self.odom.position(), self.odom.heading());
         let forward_rate = self.controller.ly();
         let turning_rate = self.controller.rx();
@@ -196,14 +198,10 @@ impl Robot {
             // for some reason the gearbox doesn't set properly
             self.drivebase.set_side_percent_max_rpm(l, r, 200.0);
         }
-
-        self.brain.write_changes();
-        std::thread::sleep(Duration::from_millis(1));
     }
 
     fn auton_skills(&mut self, route: &mut crate::path::Route) {
         use communication::plot;
-        self.odom.calc_position();
         plot!("pos", self.odom.position());
         plot!("heading", self.odom.heading().to_degrees());
         communication::odom(self.odom.position(), self.odom.heading());
@@ -211,9 +209,6 @@ impl Robot {
         let [l, r] = route.follow(&self.odom);
         plot!("lr", [l, r]);
         self.drivebase.set_side_percent_max_rpm(l, r, 200.0);
-
-        self.brain.write_changes();
-        std::thread::sleep(std::time::Duration::from_millis(1));
     }
 }
 
