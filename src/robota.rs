@@ -102,11 +102,24 @@ impl Robot {
         use std::f64::consts::*;
         let mut tuning_start = std::time::Instant::now();
         let mut start_heading = 0.0;
+        let (startx, starty) = (-0.3, -1.55);
         let auton_path = [
-            Action::TurnRelAbs { angle: FRAC_PI_4 },
+            /*Action::TurnRelAbs { angle: FRAC_PI_4 },
             Action::TurnRelAbs { angle: -FRAC_PI_4 },
-            Action::MoveRel { rel: 1.0 },
-            Action::TurnTo { heading: FRAC_PI_2 },
+            Action::MoveRelAbs { rel: 1.0 },*/
+            Action::MoveTo {
+                pos: [0.9 - startx, -1.55 - starty],
+            },
+            Action::MoveTo {
+                pos: [1.5 - startx, -1.0 - starty],
+            },
+            Action::MoveTo {
+                pos: [1.6 - startx, -0.84 - starty],
+            },
+            Action::MoveTo {
+                pos: [1.6 - startx, -1.1 - starty],
+            },
+            Action::MoveTo { pos: [0.94, 0.67] },
         ];
         let mut auton_path = crate::path::Route::new(&auton_path);
         loop {
@@ -189,9 +202,14 @@ impl Robot {
     }
 
     fn auton_skills(&mut self, route: &mut crate::path::Route) {
+        use communication::plot;
+        self.odom.calc_position();
+        plot!("pos", self.odom.position());
+        plot!("heading", self.odom.heading().to_degrees());
         communication::odom(self.odom.position(), self.odom.heading());
 
         let [l, r] = route.follow(&self.odom);
+        plot!("lr", [l, r]);
         self.drivebase.set_side_percent_max_rpm(l, r, 200.0);
 
         self.brain.write_changes();

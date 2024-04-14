@@ -34,7 +34,7 @@ impl Add for Vec2 {
 impl Sub for Vec2 {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
-        Vec2([self.x() + rhs.x(), self.y() + rhs.y()])
+        Vec2([self.x() - rhs.x(), self.y() - rhs.y()])
     }
 }
 

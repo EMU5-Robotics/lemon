@@ -223,20 +223,22 @@ impl Route {
                     && odom.angular_velocity().abs() < 1f64.to_radians() =>
             {
                 log::info!(
-                    "Finished segment {} - TurnTo({}).",
+                    "Finished segment {} - TurnTo({}) with heading ({}).",
                     self.current_segment,
-                    target_heading
+                    target_heading,
+                    odom.heading()
                 );
                 self.cur_seg = None;
                 return self.follow(odom);
             }
             ProcessedSegment::MoveRel { start, end, .. } => {
                 let ideal_heading = (end[1] - start[1]).atan2(end[0] - start[0]);
+                let ideal_heading = Self::optimise_target_heading(odom.heading(), ideal_heading);
                 // check heading is within +-3 deg
-                if (odom.heading() - ideal_heading).abs() > 3f64.to_radians() {
+                if (odom.heading() - ideal_heading).abs() > 8f64.to_radians() {
                     let new_segs = self.transform_segment(&MinSegment::MoveTo(*end), odom);
                     self.seg_buf.extend(new_segs);
-                    log::warn!("MoveRel failed due to exceeding a +- 3deg heading. Creating MoveTo segment.");
+                    log::warn!("MoveRel failed due to exceeding a +- 8deg heading ({} vs {}). Creating MoveTo segment.", odom.heading(), ideal_heading);
                     self.cur_seg = None;
                     return self.follow(odom);
                 }
@@ -254,19 +256,28 @@ impl Route {
                 let start_dist = (start - pos).mag();
                 let s = (end_dist + start_dist + base) * 0.5;
                 let area = (s * (s - end_dist) * (s - start_dist) * (s - base)).sqrt();
-                if (2.0 * area / base) < 0.05 {
+                let near_dist = 2.0 * area / base;
+                if near_dist > 0.10 {
                     let new_segs =
                         self.transform_segment(&MinSegment::MoveTo([end.x(), end.y()]), odom);
                     self.seg_buf.extend(new_segs);
-                    log::warn!("Distance from closest point exceeds 5cm. Creating MoveTo segment.");
+                    log::warn!("Distance from closest point exceeds 10cm ({near_dist}). Creating MoveTo segment. pos: ({}, {})", pos.x(), pos.y());
                     self.cur_seg = None;
                     return self.follow(odom);
                 }
 
                 // finish the segment if distance to end point is less then
                 // 5cm and (average side) velocity is < 1cm/s
+                /*use rand::{thread_rng, Rng};
+                if thread_rng().gen::<f32>() < 0.01 {
+                    log::info!("{end_dist} | {}", 2.0 * area / base);
+                }*/
+                use communication::plot;
+                plot!("dists", [end_dist, 2.0 * area / base]);
+                plot!("end", [end.x(), end.y()]);
                 if 0.5 * (odom.side_velocities()[0] + odom.side_velocities()[1]) < 0.01
                     && end_dist < 0.05
+                    || (end_dist < start_dist && start_dist > base)
                 {
                     log::info!(
                         "Finished segment {} - MoveRel(start: {:?}, end: {:?}).",

@@ -170,25 +170,25 @@ impl Odometry {
         let (sin, cos) = heading.sin_cos();
 
         // handle the special case if the heading doesn't change
-        if diff_heading.abs() < 0.0005 || diff_back.abs() > 0.1 {
-            // local difference
-            let diff_x_local = 0.5 * (diff_left + diff_right);
-            let diff_y_local = diff_back;
-            // global difference
-            diff_x = cos * diff_x_local - sin * diff_y_local;
-            diff_y = sin * diff_x_local + cos * diff_y_local;
-        } else {
-            let rt = 0.5
-                * (diff_left / diff_heading + LEFT_DIST + diff_right / diff_heading - RIGHT_DIST);
-            let rs = diff_back / diff_heading + BACK_DIST;
+        //if diff_heading.abs() < 0.0005 || diff_back.abs() > 0.1 {
+        // local difference
+        let diff_x_local = 0.5 * (diff_left + diff_right);
+        let diff_y_local = 0.0; //diff_back;
+                                // global difference
+        diff_x = cos * diff_x_local; // - sin * diff_y_local;
+        diff_y = sin * diff_x_local; // + cos * diff_y_local;
+                                     /*} else {
+                                         let rt = 0.5
+                                             * (diff_left / diff_heading + LEFT_DIST + diff_right / diff_heading - RIGHT_DIST);
+                                         let rs = diff_back / diff_heading + BACK_DIST;
 
-            let (last_sin, last_cos) = last_heading.sin_cos();
-            let (diff_sin, diff_cos) = diff_heading.sin_cos();
-            let local_x = rt * diff_sin - rs * (1.0 - diff_cos);
-            let local_y = rt * (1.0 - diff_cos) + rs * diff_sin;
-            diff_x = last_cos * local_x - last_sin * local_y;
-            diff_y = last_sin * local_x + last_cos * local_y;
-        }
+                                         let (last_sin, last_cos) = last_heading.sin_cos();
+                                         let (diff_sin, diff_cos) = diff_heading.sin_cos();
+                                         let local_x = rt * diff_sin - rs * (1.0 - diff_cos);
+                                         let local_y = rt * (1.0 - diff_cos) + rs * diff_sin;
+                                         diff_x = last_cos * local_x - last_sin * local_y;
+                                         diff_y = last_sin * local_x + last_cos * local_y;
+                                     }*/
 
         self.position[0] += diff_x;
         self.position[1] += diff_y;
