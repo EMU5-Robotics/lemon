@@ -33,7 +33,7 @@ struct Robot {
     brain: Brain,
     controller: Controller,
     mediator: Mediator,
-    loader: Loader,
+    loader: Motor,
 }
 
 // merge or move these functions?
@@ -50,7 +50,8 @@ impl Robot {
         let (brain, controller) = Brain::init();
         log::info!("Connected to the brain.");
 
-        let loader = Loader::new([(4, false), (2, true)], &brain);
+        //let loader = Loader::new([(4, false), (2, true)], &brain);
+        let loader = brain.get_motor(13);
 
         Self {
             state: RobotState::default(),
@@ -107,8 +108,11 @@ impl Robot {
 
         if self.controller.held(ControllerButtons::Y) {
             forward_rate = 1.0;
+        } else if self.controller.held(ControllerButtons::A) {
+            forward_rate = -1.0;
         }
-        self.loader.set_side_percent_voltage(forward_rate);
+        self.loader
+            .set_target(motor::Target::PercentVoltage(forward_rate));
 
         /*if forward_rate_two == 0.0 {
             puncher.set_target(motor::Target::RotationalVelocity(0));
