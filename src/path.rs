@@ -4,6 +4,7 @@ use crate::odom::Odometry;
 use crate::pid::Pid;
 use crate::vec::Vec2;
 
+use std::collections::VecDeque;
 use std::f64::consts::{PI, TAU};
 
 /// Each auton "path" is a Route which is created
@@ -358,7 +359,7 @@ fn velocity_profile(start: Vec2, end: Vec2, path_dist: f64, pos: Vec2) -> f64 {
 pub struct Path {
     // this is a stack so the last element in
     // the vector is the first that will be run
-    pub segments: Vec<Box<dyn PathSegment>>,
+    pub segments: VecDeque<Box<dyn PathSegment>>,
     pub current_segment: Option<Box<dyn PathSegment>>,
 }
 
@@ -368,6 +369,9 @@ impl Path {
             segments: reversed_segments.into_iter().rev().collect(),
             current_segment: None,
         }
+    }
+    pub fn extend(&mut self, v: Box<dyn PathSegment>) {
+        self.segments.push_front(v);
     }
     pub fn new_from_actions(actions: &[Action]) -> Self {
         let mut pos = [0.0, 0.0];
@@ -426,7 +430,7 @@ impl Path {
             return;
         }
 
-        while let Some(new_seg) = self.segments.pop() {
+        while let Some(new_seg) = self.segments.pop_back() {
             if new_seg.finished_transform() {
                 self.current_segment = Some(new_seg);
                 return;
@@ -628,7 +632,44 @@ impl PathSegment for MoveRel {
                 start,
                 end
             );
-            return Some(vec![]);
+            return Some(Vec::new());
+        }
+        None
+    }
+}
+
+pub struct Ram {
+    pow: f64,
+    dur: std::time::Duration,
+    start: std::time::Instant,
+}
+
+impl Ram {
+    pub fn new(pow: f64, dur: std::time::Duration) -> Self {
+        Self {
+            pow,
+            dur,
+            start: std::time::Instant::now(),
+        }
+    }
+}
+
+impl PathSegment for Ram {
+    fn transform<'a>(self: Box<Self>, _: &Odometry) -> Vec<Box<dyn PathSegment + 'a>> {
+        unreachable!("transform should never get called since finished_transform is true")
+    }
+    fn finished_transform(&self) -> bool {
+        true
+    }
+    fn start(&mut self, _: &Odometry) {
+        self.start = std::time::Instant::now();
+    }
+    fn follow(&self, _: &Odometry, _: &mut Pid) -> [f64; 2] {
+        [self.pow; 2]
+    }
+    fn end_follow<'a>(&mut self, _: &Odometry) -> Option<Vec<Box<dyn PathSegment + 'a>>> {
+        if self.start.elapsed() > self.dur {
+            return Some(Vec::new());
         }
         None
     }
