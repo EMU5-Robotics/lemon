@@ -122,7 +122,7 @@ impl Robot {
             Action::MoveTo { pos: [0.94, 0.67] },
         ];
         let ram = crate::path::Ram::new(0.5, std::time::Duration::from_millis(300));
-        let mut auton_path = crate::path::Route::new(&actions);
+        //let mut auton_path = crate::path::Route::new(&actions);
         let mut auton_path_two = crate::path::Path::new_from_actions(&actions);
         //auton_path_two.extend(Box::new(ram));
         let mut angle_pid = Pid::new(0.35, 0.035, 2.2);

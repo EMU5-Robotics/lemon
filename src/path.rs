@@ -425,13 +425,15 @@ impl Path {
 }
 
 impl Path {
-    fn transform_segments(&mut self, odom: &Odometry) {
+    fn transform_segments(&mut self, odom: &Odometry, angle_pid: &mut Pid) {
         if self.current_segment.is_some() {
             return;
         }
 
-        while let Some(new_seg) = self.segments.pop_back() {
+        while let Some(mut new_seg) = self.segments.pop_back() {
             if new_seg.finished_transform() {
+                log::info!("started new segment: {new_seg:?}");
+                new_seg.start(odom, angle_pid);
                 self.current_segment = Some(new_seg);
                 return;
             }
@@ -440,7 +442,7 @@ impl Path {
     }
     pub fn follow(&mut self, odom: &Odometry, angle_pid: &mut Pid) -> [f64; 2] {
         // get new segments if needed
-        self.transform_segments(odom);
+        self.transform_segments(odom, angle_pid);
 
         // exit when no segments could be transformed
         let Some(seg) = self.current_segment.as_mut() else {
@@ -449,6 +451,11 @@ impl Path {
 
         // end segment and start next
         if let Some(new_segments) = seg.end_follow(odom) {
+            if new_segments.is_empty() {
+                log::info!("segment_ended: {seg:?} and added new segments: {new_segments:?}");
+            } else {
+                log::info!("segment_ended: {seg:?}");
+            }
             self.segments.extend(new_segments);
             self.current_segment = None;
             return self.follow(odom, angle_pid);
@@ -461,14 +468,15 @@ impl Path {
     }
 }
 
-pub trait PathSegment {
+pub trait PathSegment: std::fmt::Debug {
     fn transform<'a>(self: Box<Self>, odom: &Odometry) -> Vec<Box<dyn PathSegment + 'a>>;
     fn finished_transform(&self) -> bool;
-    fn start(&mut self, odom: &Odometry);
+    fn start(&mut self, odom: &Odometry, angle_pid: &mut Pid);
     fn follow(&self, odom: &Odometry, angle_pid: &mut Pid) -> [f64; 2];
     fn end_follow<'a>(&mut self, odom: &Odometry) -> Option<Vec<Box<dyn PathSegment + 'a>>>;
 }
 
+#[derive(Debug)]
 struct TurnTo {
     start_heading: f64,
     target_heading: f64,
@@ -481,8 +489,10 @@ impl PathSegment for TurnTo {
     fn finished_transform(&self) -> bool {
         true
     }
-    fn start(&mut self, odom: &Odometry) {
+    fn start(&mut self, odom: &Odometry, angle_pid: &mut Pid) {
         self.target_heading = optimise_target_heading(odom.heading(), self.target_heading);
+        angle_pid.set_target(self.target_heading);
+        angle_pid.reset();
     }
     fn follow(&self, odom: &Odometry, angle_pid: &mut Pid) -> [f64; 2] {
         let pow = angle_pid.poll(odom.heading());
@@ -555,7 +565,7 @@ impl PathSegment for MinSegment {
     fn finished_transform(&self) -> bool {
         false
     }
-    fn start(&mut self, _: &Odometry) {
+    fn start(&mut self, _: &Odometry, _: &mut Pid) {
         unreachable!("segment should be always be transformed")
     }
     fn follow(&self, _: &Odometry, _: &mut Pid) -> [f64; 2] {
@@ -566,6 +576,7 @@ impl PathSegment for MinSegment {
     }
 }
 
+#[derive(Debug)]
 struct MoveRel {
     start: [f64; 2],
     end: [f64; 2],
@@ -579,7 +590,7 @@ impl PathSegment for MoveRel {
     fn finished_transform(&self) -> bool {
         true
     }
-    fn start(&mut self, _: &Odometry) {}
+    fn start(&mut self, _: &Odometry, _: &mut Pid) {}
     fn follow(&self, odom: &Odometry, _: &mut Pid) -> [f64; 2] {
         let pow = velocity_profile(
             self.start.into(),
@@ -638,6 +649,7 @@ impl PathSegment for MoveRel {
     }
 }
 
+#[derive(Debug)]
 pub struct Ram {
     pow: f64,
     dur: std::time::Duration,
@@ -661,7 +673,7 @@ impl PathSegment for Ram {
     fn finished_transform(&self) -> bool {
         true
     }
-    fn start(&mut self, _: &Odometry) {
+    fn start(&mut self, _: &Odometry, _: &mut Pid) {
         self.start = std::time::Instant::now();
     }
     fn follow(&self, _: &Odometry, _: &mut Pid) -> [f64; 2] {
