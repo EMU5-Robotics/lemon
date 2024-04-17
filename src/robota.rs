@@ -103,7 +103,7 @@ impl Robot {
         let mut tuning_start = std::time::Instant::now();
         let mut start_heading = 0.0;
         let (startx, starty) = (-0.3, -1.55);
-        let auton_path = [
+        let actions = [
             /*Action::TurnRelAbs { angle: FRAC_PI_4 },
             Action::TurnRelAbs { angle: -FRAC_PI_4 },
             Action::MoveRelAbs { rel: 1.0 },*/
@@ -121,7 +121,9 @@ impl Robot {
             },
             Action::MoveTo { pos: [0.94, 0.67] },
         ];
-        let mut auton_path = crate::path::Route::new(&auton_path);
+        let mut auton_path = crate::path::Route::new(&actions);
+        let mut auton_path_two = crate::path::Path::new_from_actions(&actions);
+        let mut angle_pid = Pid::new(0.35, 0.035, 2.2);
         loop {
             self.handle_events();
 
@@ -141,7 +143,7 @@ impl Robot {
 
             match self.state {
                 RobotState::Off | RobotState::Disabled => {}
-                RobotState::AutonSkills => self.auton_skills(&mut auton_path),
+                RobotState::AutonSkills => self.auton_skills(&mut auton_path_two, &mut angle_pid),
                 RobotState::DriverAuton => {}
                 RobotState::DriverSkills => {
                     self.driver(&mut tuning_start, &mut start_heading);
@@ -200,13 +202,13 @@ impl Robot {
         }
     }
 
-    fn auton_skills(&mut self, route: &mut crate::path::Route) {
+    fn auton_skills(&mut self, route: &mut crate::path::Path, angle_pid: &mut Pid) {
         use communication::plot;
         plot!("pos", self.odom.position());
         plot!("heading", self.odom.heading().to_degrees());
         communication::odom(self.odom.position(), self.odom.heading());
 
-        let [l, r] = route.follow(&self.odom);
+        let [l, r] = route.follow(&self.odom, angle_pid);
         plot!("lr", [l, r]);
         self.drivebase.set_side_percent_max_rpm(l, r, 200.0);
     }

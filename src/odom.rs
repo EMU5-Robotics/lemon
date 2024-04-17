@@ -141,16 +141,14 @@ impl Odometry {
 
         // get the new heading and wheel positions
         let heading = self.imu.heading();
-        let [left, right, back] = self.tracking_wheels.distances();
+        let [left, right, _] = self.tracking_wheels.distances();
         self.last_10_times.push_back(Instant::now());
         self.last_10_times.pop_front();
         self.last_10_vals.push_back([left, right]);
         self.last_10_vals.pop_front();
 
         // get the differences
-        let diff_heading = heading - last_heading;
-        let [diff_left, diff_right, diff_back] =
-            [left - last_left, right - last_right, back - last_back];
+        let [diff_left, diff_right] = [left - last_left, right - last_right];
 
         // velocities
         if !self.first_update && self.last_update.elapsed() > Duration::from_millis(10) {
@@ -166,13 +164,12 @@ impl Odometry {
             self.first_update = false;
         }
 
-        let (diff_x, diff_y);
         let (sin, cos) = heading.sin_cos();
 
         let diff_x_local = 0.5 * (diff_left + diff_right);
 
         self.position[0] += cos * diff_x_local;
-        self.position[1] += sin * diff_y_local;
+        self.position[1] += sin * diff_x_local;
     }
     pub fn position(&self) -> [f64; 2] {
         self.position
