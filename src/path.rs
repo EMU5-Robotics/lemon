@@ -439,6 +439,35 @@ impl PathSegment for Ram {
     }
 }
 
+#[derive(Debug)]
+pub struct TimedSegment {
+    seg: Box<dyn PathSegment>,
+    dur: std::time::Duration,
+    start: std::time::Instant,
+}
+
+impl PathSegment for TimedSegment {
+    fn transform<'a>(self: Box<Self>, odom: &Odometry) -> Vec<Box<dyn PathSegment + 'a>> {
+        self.seg.transform(odom)
+    }
+    fn finished_transform(&self) -> bool {
+        self.seg.finished_transform()
+    }
+    fn start(&mut self, odom: &Odometry, angle_pid: &mut Pid) {
+        self.start = std::time::Instant::now();
+        self.seg.start(odom, angle_pid);
+    }
+    fn follow(&mut self, odom: &Odometry, angle_pid: &mut Pid) -> [f64; 2] {
+        self.seg.follow(odom, angle_pid)
+    }
+    fn end_follow<'a>(&mut self, odom: &Odometry) -> Option<Vec<Box<dyn PathSegment + 'a>>> {
+        if self.start.elapsed() > self.dur {
+            return Some(Vec::new());
+        }
+        self.seg.end_follow(odom)
+    }
+}
+
 fn optimise_target_heading(heading: f64, target: f64) -> f64 {
     let mut delta = target - heading;
     // map delta into [-TAU, TAU]
