@@ -84,6 +84,7 @@ fn velocity_profile(start: Vec2, end: Vec2, path_dist: f64, pos: Vec2) -> f64 {
     velocity
 }
 
+#[derive(Debug)]
 pub struct Path {
     // this is a stack so the last element in
     // the vector is the first that will be run
@@ -203,8 +204,28 @@ pub trait PathSegment: std::fmt::Debug {
     fn transform<'a>(self: Box<Self>, odom: &Odometry) -> Vec<Box<dyn PathSegment + 'a>>;
     fn finished_transform(&self) -> bool;
     fn start(&mut self, odom: &Odometry, angle_pid: &mut Pid);
-    fn follow(&self, odom: &Odometry, angle_pid: &mut Pid) -> [f64; 2];
+    fn follow(&mut self, odom: &Odometry, angle_pid: &mut Pid) -> [f64; 2];
     fn end_follow<'a>(&mut self, odom: &Odometry) -> Option<Vec<Box<dyn PathSegment + 'a>>>;
+}
+
+impl PathSegment for Path {
+    fn transform<'a>(self: Box<Self>, _: &Odometry) -> Vec<Box<dyn PathSegment + 'a>> {
+        unreachable!("transform should never get called since finished_transform is true");
+    }
+    fn finished_transform(&self) -> bool {
+        true
+    }
+    fn start(&mut self, _: &Odometry, _: &mut Pid) {}
+    fn follow(&mut self, odom: &Odometry, angle_pid: &mut Pid) -> [f64; 2] {
+        Path::follow(self, odom, angle_pid)
+    }
+    fn end_follow<'a>(&mut self, _: &Odometry) -> Option<Vec<Box<dyn PathSegment + 'a>>> {
+        if self.ended() {
+            Some(Vec::new())
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -225,7 +246,7 @@ impl PathSegment for TurnTo {
         angle_pid.set_target(self.target_heading);
         angle_pid.reset();
     }
-    fn follow(&self, odom: &Odometry, angle_pid: &mut Pid) -> [f64; 2] {
+    fn follow(&mut self, odom: &Odometry, angle_pid: &mut Pid) -> [f64; 2] {
         let pow = angle_pid.poll(odom.heading());
         [-pow, pow]
     }
@@ -299,7 +320,7 @@ impl PathSegment for MinSegment {
     fn start(&mut self, _: &Odometry, _: &mut Pid) {
         unreachable!("segment should be always be transformed")
     }
-    fn follow(&self, _: &Odometry, _: &mut Pid) -> [f64; 2] {
+    fn follow(&mut self, _: &Odometry, _: &mut Pid) -> [f64; 2] {
         unreachable!("segment should be always be transformed")
     }
     fn end_follow<'a>(&mut self, _: &Odometry) -> Option<Vec<Box<dyn PathSegment + 'a>>> {
@@ -322,7 +343,7 @@ impl PathSegment for MoveRel {
         true
     }
     fn start(&mut self, _: &Odometry, _: &mut Pid) {}
-    fn follow(&self, odom: &Odometry, _: &mut Pid) -> [f64; 2] {
+    fn follow(&mut self, odom: &Odometry, _: &mut Pid) -> [f64; 2] {
         let pow = velocity_profile(
             self.start.into(),
             self.end.into(),
@@ -407,7 +428,7 @@ impl PathSegment for Ram {
     fn start(&mut self, _: &Odometry, _: &mut Pid) {
         self.start = std::time::Instant::now();
     }
-    fn follow(&self, _: &Odometry, _: &mut Pid) -> [f64; 2] {
+    fn follow(&mut self, _: &Odometry, _: &mut Pid) -> [f64; 2] {
         [self.pow; 2]
     }
     fn end_follow<'a>(&mut self, _: &Odometry) -> Option<Vec<Box<dyn PathSegment + 'a>>> {
