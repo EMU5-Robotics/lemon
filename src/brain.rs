@@ -19,6 +19,7 @@ pub struct Packet {
     brain_state: State,
     pub buttons: ControllerButtons,
     pub axes: [i8; 4],
+    pub auton_program: u8,
 }
 
 // The functions here are mainly for constructing
@@ -40,6 +41,7 @@ impl From<(Instant, StatusPkt)> for Packet {
             brain_state: pkt.state.into(),
             buttons: pkt.controller_buttons,
             axes: pkt.controller_axes,
+            auton_program: pkt.auton,
         }
     }
 }
@@ -123,6 +125,9 @@ impl Brain {
             }
             *robot_state
         }
+    }
+    pub fn auton_program(&self) -> u8 {
+        self.pkt_buffer[0].auton_program
     }
     pub fn write_changes(&mut self) {
         let mut ctrl_pkt = ControlPkt::default();

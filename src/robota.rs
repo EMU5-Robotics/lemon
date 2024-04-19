@@ -179,7 +179,7 @@ impl Robot {
             match self.state {
                 RobotState::Off | RobotState::Disabled => {}
                 RobotState::AutonSkills => self.auton_skills(&mut auton_path, &mut angle_pid),
-                RobotState::DriverAuton => {}
+                RobotState::DriverAuton => self.auton(&mut auton_path, &mut angle_pid),
                 RobotState::DriverSkills => {
                     self.driver(&mut tuning_start, &mut start_heading);
                 }
@@ -235,6 +235,9 @@ impl Robot {
             // for some reason the gearbox doesn't set properly
             self.drivebase.set_side_percent_max_rpm(l, r, 200.0);
         }
+    }
+    fn auton(&mut self, route: &mut crate::path::Path, angle_pid: &mut Pid) {
+        log::info!("auton program: {}", self.brain.auton_program());
     }
 
     fn auton_skills(&mut self, route: &mut crate::path::Path, angle_pid: &mut Pid) {
