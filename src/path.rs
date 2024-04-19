@@ -215,6 +215,7 @@ pub trait PathSegment: std::fmt::Debug {
     fn start(&mut self, odom: &Odometry, angle_pid: &mut Pid);
     fn follow(&mut self, odom: &Odometry, angle_pid: &mut Pid) -> [f64; 2];
     fn end_follow<'a>(&mut self, odom: &Odometry) -> Option<Vec<Box<dyn PathSegment + 'a>>>;
+    fn abrupt_end(&mut self, odom: &Odometry) {}
     fn boxed_clone<'a>(&self) -> Box<dyn PathSegment + 'a> {
         panic!("This type is designed to not be clonable: {self:?}");
     }
@@ -477,6 +478,16 @@ pub struct TimedSegment {
     start: std::time::Instant,
 }
 
+impl TimedSegment {
+    pub fn new(seg: Box<dyn PathSegment>, dur: std::time::Duration) -> Self {
+        Self {
+            seg,
+            dur,
+            start: std::time::Instant::now(),
+        }
+    }
+}
+
 impl PathSegment for TimedSegment {
     fn transform<'a>(self: Box<Self>, odom: &Odometry) -> Vec<Box<dyn PathSegment + 'a>> {
         self.seg.transform(odom)
@@ -493,6 +504,7 @@ impl PathSegment for TimedSegment {
     }
     fn end_follow<'a>(&mut self, odom: &Odometry) -> Option<Vec<Box<dyn PathSegment + 'a>>> {
         if self.start.elapsed() > self.dur {
+            self.seg.abrupt_end(odom);
             return Some(Vec::new());
         }
         self.seg.end_follow(odom)
@@ -503,6 +515,78 @@ impl PathSegment for TimedSegment {
             dur: self.dur,
             start: self.start,
         })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PowerMotors<const N: usize> {
+    pow: f64,
+    motors: [(crate::motor::Motor, bool); N],
+}
+
+impl<const N: usize> PowerMotors<N> {
+    pub fn new(motors: [(crate::motor::Motor, bool); N], pow: f64) -> Self {
+        if !(0.0..1.0).contains(&pow.abs()) {
+            log::warn!(
+                "PowerMotors constructed with invalid power: {pow} on motors {:?}. Clamping",
+                motors.iter().map(|v| v.0.port()).collect::<Vec<_>>()
+            );
+        }
+        let pow = pow.clamp(-1.0, 1.0);
+        Self { pow, motors }
+    }
+}
+
+impl<const N: usize> PathSegment for PowerMotors<N> {
+    fn transform<'a>(self: Box<Self>, _: &Odometry) -> Vec<Box<dyn PathSegment + 'a>> {
+        unreachable!("transform should never get called since finished_transform is true")
+    }
+    fn finished_transform(&self) -> bool {
+        true
+    }
+    fn start(&mut self, _: &Odometry, _: &mut Pid) {}
+    fn follow(&mut self, _: &Odometry, _: &mut Pid) -> [f64; 2] {
+        for (motor, rev) in &mut self.motors {
+            if *rev {
+                motor.set_target(crate::motor::Target::PercentVoltage(-self.pow));
+            } else {
+                motor.set_target(crate::motor::Target::PercentVoltage(self.pow));
+            }
+        }
+        [0.0, 0.0]
+    }
+    fn abrupt_end(&mut self, _: &Odometry) {
+        for (motor, _) in &mut self.motors {
+            motor.set_target(crate::motor::Target::PercentVoltage(0.0));
+        }
+    }
+    fn end_follow<'a>(&mut self, _: &Odometry) -> Option<Vec<Box<dyn PathSegment + 'a>>> {
+        None
+    }
+    fn boxed_clone<'a>(&self) -> Box<dyn PathSegment + 'a> {
+        Box::new(self.clone())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Nop {}
+
+impl PathSegment for Nop {
+    fn transform<'a>(self: Box<Self>, _: &Odometry) -> Vec<Box<dyn PathSegment + 'a>> {
+        unreachable!("transform should never get called since finished_transform is true")
+    }
+    fn finished_transform(&self) -> bool {
+        true
+    }
+    fn start(&mut self, _: &Odometry, _: &mut Pid) {}
+    fn follow(&mut self, _: &Odometry, _: &mut Pid) -> [f64; 2] {
+        [0.0, 0.0]
+    }
+    fn end_follow<'a>(&mut self, _: &Odometry) -> Option<Vec<Box<dyn PathSegment + 'a>>> {
+        None
+    }
+    fn boxed_clone<'a>(&self) -> Box<dyn PathSegment + 'a> {
+        Box::new(*self)
     }
 }
 

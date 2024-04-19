@@ -114,8 +114,8 @@ pub struct Odometry {
 }
 
 impl Odometry {
-    pub fn new(imu_bias: f64) -> Self {
-        let mut imu = Bmi088::new(imu_bias);
+    pub fn new(imu_bias: f64, imu_addr: u16) -> Self {
+        let mut imu = Bmi088::new(imu_bias, imu_addr);
         imu.reset();
         Self {
             imu,

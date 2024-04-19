@@ -24,12 +24,12 @@ pub struct Bmi088 {
 }
 
 impl Bmi088 {
-    pub fn new(bias: f64) -> Self {
+    pub fn new(bias: f64, addr: u16) -> Self {
         let mut i2c = I2c::new().unwrap();
         log::info!("IMU clock speed: {:?}", i2c.clock_speed());
 
         // gyroscope address
-        i2c.set_slave_address(0x68u16).unwrap();
+        i2c.set_slave_address(addr).unwrap();
         i2c.write(&[0x0F, ANGULAR_CODE]).unwrap();
         // set filtering (test if this performs the best)
         i2c.write(&[0x10, 0x02]).unwrap();

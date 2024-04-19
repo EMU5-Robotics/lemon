@@ -64,7 +64,7 @@ impl Robot {
             &mut brain,
         );
 
-        let odom = Odometry::new(ROBOT_A_IMU_BIAS);
+        let odom = Odometry::new(ROBOT_A_IMU_BIAS, 0x68u16);
 
         Self {
             state: RobotState::default(),
@@ -99,14 +99,10 @@ impl Robot {
     }
     pub fn main_loop(&mut self) -> ! {
         use communication::path::Action;
-        use std::f64::consts::*;
         let mut tuning_start = std::time::Instant::now();
         let mut start_heading = 0.0;
         let (startx, starty) = (-0.3, -1.55);
         let actions = [
-            /*Action::TurnRelAbs { angle: FRAC_PI_4 },
-            Action::TurnRelAbs { angle: -FRAC_PI_4 },
-            Action::MoveRelAbs { rel: 1.0 },*/
             Action::MoveTo {
                 pos: [0.9 - startx, -1.55 - starty],
             },
@@ -121,10 +117,47 @@ impl Robot {
             },
             Action::MoveTo { pos: [0.94, 0.67] },
         ];
-        let ram = crate::path::Ram::new(1.0, std::time::Duration::from_millis(600));
-        //let mut auton_path = crate::path::Route::new(&actions);
+
+        use crate::path::*;
+
         let mut auton_path_two = crate::path::Path::new_from_actions(&actions);
-        auton_path_two.extend_front(Box::new(ram));
+        let kicker = [
+            (self.brain.get_motor(13), false),
+            (self.brain.get_motor(1), true),
+        ];
+        let kick_ball = Path::new(vec![
+            Box::new(TimedSegment::new(
+                Box::new(PowerMotors::new(kicker.clone(), 1.0)),
+                Duration::from_millis(180),
+            )),
+            Box::new(TimedSegment::new(
+                Box::new(Nop {}),
+                Duration::from_millis(200),
+            )),
+            Box::new(TimedSegment::new(
+                Box::new(PowerMotors::new(kicker.clone(), -0.6)),
+                Duration::from_millis(300),
+            )),
+            Box::new(TimedSegment::new(
+                Box::new(Nop {}),
+                Duration::from_millis(200),
+            )),
+        ]);
+        let mut auton_path = crate::path::Path::new(vec![
+            Box::new(TimedSegment::new(
+                Box::new(PowerMotors::new(kicker.clone(), 0.8)),
+                Duration::from_millis(80),
+            )),
+            Box::new(TimedSegment::new(
+                Box::new(PowerMotors::new(kicker.clone(), -0.2)),
+                Duration::from_millis(100),
+            )),
+            Box::new(TimedSegment::new(
+                Box::new(Nop {}),
+                Duration::from_millis(500),
+            )),
+            Box::new(RepeatSegment::new(Box::new(kick_ball), 10)),
+        ]);
         let mut angle_pid = Pid::new(0.35, 0.035, 2.2);
         loop {
             self.handle_events();
@@ -145,7 +178,7 @@ impl Robot {
 
             match self.state {
                 RobotState::Off | RobotState::Disabled => {}
-                RobotState::AutonSkills => self.auton_skills(&mut auton_path_two, &mut angle_pid),
+                RobotState::AutonSkills => self.auton_skills(&mut auton_path, &mut angle_pid),
                 RobotState::DriverAuton => {}
                 RobotState::DriverSkills => {
                     self.driver(&mut tuning_start, &mut start_heading);

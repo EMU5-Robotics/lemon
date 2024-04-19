@@ -3,6 +3,7 @@ use communication::{
     plot,
 };
 
+mod bmi088;
 mod brain;
 mod controller;
 mod loader;
@@ -25,7 +26,13 @@ const IS_SKILLS: bool = true;
 pub const BRAIN_TIMEOUT: Duration = Duration::from_millis(500);
 
 fn main() -> ! {
-    Robot::run();
+    let mut imu = bmi088::Bmi088::new(0.0, 0x69u16);
+
+    loop {
+        let heading = imu.calc_heading();
+        println!("{}", heading.to_degrees());
+    }
+    //Robot::run();
 }
 
 struct Robot {
