@@ -132,7 +132,7 @@ impl Robot {
             )),
             Box::new(TimedSegment::new(
                 Box::new(Nop {}),
-                Duration::from_millis(200),
+                Duration::from_millis(400),
             )),
             Box::new(TimedSegment::new(
                 Box::new(PowerMotors::new(kicker.clone(), -0.6)),
@@ -140,10 +140,10 @@ impl Robot {
             )),
             Box::new(TimedSegment::new(
                 Box::new(Nop {}),
-                Duration::from_millis(200),
+                Duration::from_millis(400),
             )),
         ]);
-        let mut auton_path = crate::path::Path::new(vec![
+        let load_balls = crate::path::Path::new(vec![
             Box::new(TimedSegment::new(
                 Box::new(PowerMotors::new(kicker.clone(), 0.8)),
                 Duration::from_millis(80),
@@ -156,8 +156,16 @@ impl Robot {
                 Box::new(Nop {}),
                 Duration::from_millis(500),
             )),
-            Box::new(RepeatSegment::new(Box::new(kick_ball), 10)),
+            Box::new(RepeatSegment::new(Box::new(kick_ball), 12)),
         ]);
+        let mut auton_path = Path::new(vec![
+            Box::new(MinSegment::TurnTo(80f64.to_radians())),
+            Box::new(Ram::new(0.2, Duration::from_millis(500))),
+            Box::new(MinSegment::TurnTo(45f64.to_radians())),
+            Box::new(MinSegment::MoveRel(1.8)),
+        ]);
+        auton_path.extend_front(Box::new(load_balls));
+        //let mut hold_bar = Box::new(Ram::new(-0.1, Duration::from_secs(100_000)));
         let mut angle_pid = Pid::new(0.35, 0.035, 2.2);
         loop {
             self.handle_events();

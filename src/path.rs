@@ -15,7 +15,7 @@ use std::f64::consts::{PI, TAU};
 /// contains state needed to follow the "segment"
 
 #[derive(Debug, Clone, Copy)]
-enum MinSegment {
+pub enum MinSegment {
     MoveTo([f64; 2]),
     MoveRel(f64),
     TurnTo(f64),
