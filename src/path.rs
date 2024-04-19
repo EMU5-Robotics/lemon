@@ -156,6 +156,15 @@ impl Path {
     }
 }
 
+impl From<Box<dyn PathSegment>> for Path {
+    fn from(seg: Box<dyn PathSegment>) -> Self {
+        Self {
+            segments: vec![seg].into(),
+            current_segment: None,
+        }
+    }
+}
+
 impl Path {
     fn transform_segments(&mut self, odom: &Odometry, angle_pid: &mut Pid) {
         if self.current_segment.is_some() {
@@ -206,6 +215,9 @@ pub trait PathSegment: std::fmt::Debug {
     fn start(&mut self, odom: &Odometry, angle_pid: &mut Pid);
     fn follow(&mut self, odom: &Odometry, angle_pid: &mut Pid) -> [f64; 2];
     fn end_follow<'a>(&mut self, odom: &Odometry) -> Option<Vec<Box<dyn PathSegment + 'a>>>;
+    fn boxed_clone<'a>(&self) -> Box<dyn PathSegment + 'a> {
+        panic!("This type is designed to not be clonable: {self:?}");
+    }
 }
 
 impl PathSegment for Path {
@@ -225,6 +237,19 @@ impl PathSegment for Path {
         } else {
             None
         }
+    }
+    fn boxed_clone<'a>(&self) -> Box<dyn PathSegment + 'a> {
+        Box::new(Self {
+            segments: self
+                .segments
+                .iter()
+                .map(|v| v.as_ref().boxed_clone())
+                .collect(),
+            current_segment: self
+                .current_segment
+                .as_ref()
+                .map(|v| v.as_ref().boxed_clone()),
+        })
     }
 }
 
@@ -326,6 +351,9 @@ impl PathSegment for MinSegment {
     fn end_follow<'a>(&mut self, _: &Odometry) -> Option<Vec<Box<dyn PathSegment + 'a>>> {
         unreachable!("segment should be always be transformed")
     }
+    fn boxed_clone<'a>(&self) -> Box<dyn PathSegment + 'a> {
+        Box::new(*self)
+    }
 }
 
 #[derive(Debug)]
@@ -401,7 +429,7 @@ impl PathSegment for MoveRel {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Ram {
     pow: f64,
     dur: std::time::Duration,
@@ -437,6 +465,9 @@ impl PathSegment for Ram {
         }
         None
     }
+    fn boxed_clone<'a>(&self) -> Box<dyn PathSegment + 'a> {
+        Box::new(self.clone())
+    }
 }
 
 #[derive(Debug)]
@@ -465,6 +496,70 @@ impl PathSegment for TimedSegment {
             return Some(Vec::new());
         }
         self.seg.end_follow(odom)
+    }
+    fn boxed_clone<'a>(&self) -> Box<dyn PathSegment + 'a> {
+        Box::new(Self {
+            seg: self.seg.as_ref().boxed_clone(),
+            dur: self.dur,
+            start: self.start,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct RepeatSegment {
+    max_count: usize,
+    count: usize,
+    ref_seg: Box<dyn PathSegment>,
+    current_seg: Box<dyn PathSegment>,
+}
+
+impl RepeatSegment {
+    pub fn new(path: Box<dyn PathSegment>, max_count: usize) -> Self {
+        Self {
+            max_count,
+            count: 0,
+            current_seg: path.boxed_clone(),
+            ref_seg: path.boxed_clone(),
+        }
+    }
+}
+
+impl PathSegment for RepeatSegment {
+    fn transform<'a>(self: Box<Self>, _: &Odometry) -> Vec<Box<dyn PathSegment + 'a>> {
+        unreachable!("transform should never get called since finished_transform is true")
+    }
+    fn finished_transform(&self) -> bool {
+        true
+    }
+    // This assures self.ref_seg is of type "Path" (to avoid handling
+    // segment start and transform code)
+    fn start(&mut self, _: &Odometry, _: &mut Pid) {
+        let a: Box<Path> = Box::new(self.ref_seg.boxed_clone().into());
+        self.ref_seg = a;
+        self.current_seg = self.ref_seg.boxed_clone();
+    }
+    fn follow(&mut self, odom: &Odometry, angle_pid: &mut Pid) -> [f64; 2] {
+        self.current_seg.follow(odom, angle_pid)
+    }
+    fn end_follow<'a>(&mut self, odom: &Odometry) -> Option<Vec<Box<dyn PathSegment + 'a>>> {
+        let ret = self.current_seg.end_follow(odom)?;
+
+        if ret.is_empty() && self.count != self.max_count {
+            self.count += 1;
+            self.current_seg = self.ref_seg.boxed_clone();
+            return None;
+        }
+
+        Some(ret)
+    }
+    fn boxed_clone<'a>(&self) -> Box<dyn PathSegment + 'a> {
+        Box::new(Self {
+            max_count: self.max_count,
+            count: 0,
+            current_seg: self.ref_seg.boxed_clone(),
+            ref_seg: self.ref_seg.boxed_clone(),
+        })
     }
 }
 
