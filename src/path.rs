@@ -204,6 +204,11 @@ impl Path {
 
         seg.follow(odom, angle_pid)
     }
+    fn abrupt_end(&mut self, odom: &Odometry) {
+        if let Some(seg) = self.current_segment.as_mut() {
+            seg.abrupt_end(odom);
+        }
+    }
     pub fn ended(&self) -> bool {
         self.current_segment.is_none() && self.segments.is_empty()
     }
@@ -238,6 +243,9 @@ impl PathSegment for Path {
         } else {
             None
         }
+    }
+    fn abrupt_end(&mut self, odom: &Odometry) {
+        Path::abrupt_end(self, odom);
     }
     fn boxed_clone<'a>(&self) -> Box<dyn PathSegment + 'a> {
         Box::new(Self {
@@ -644,6 +652,44 @@ impl PathSegment for RepeatSegment {
             current_seg: self.ref_seg.boxed_clone(),
             ref_seg: self.ref_seg.boxed_clone(),
         })
+    }
+}
+
+#[derive(Debug)]
+struct WhileSegment {
+    main: Path,
+    secondary: Path,
+    secondary_ended: bool,
+}
+
+impl PathSegment for WhileSegment {
+    fn transform<'a>(self: Box<Self>, _: &Odometry) -> Vec<Box<dyn PathSegment + 'a>> {
+        unreachable!("transform should never get called since finished_transform is true")
+    }
+    fn finished_transform(&self) -> bool {
+        true
+    }
+    fn start(&mut self, _: &Odometry, _: &mut Pid) {}
+    fn follow(&mut self, odom: &Odometry, angle_pid: &mut Pid) -> [f64; 2] {
+        let _ = self.secondary.follow(odom, angle_pid);
+        self.main.follow(odom, angle_pid)
+    }
+    fn end_follow<'a>(&mut self, odom: &Odometry) -> Option<Vec<Box<dyn PathSegment + 'a>>> {
+        if !self.secondary_ended && self.secondary.ended() {
+            self.secondary_ended = true;
+            self.secondary.abrupt_end(odom);
+        }
+        if self.main.ended() {
+            return Some(Vec::new());
+        }
+        None
+    }
+    fn abrupt_end(&mut self, odom: &Odometry) {
+        self.main.abrupt_end(odom);
+        self.secondary.abrupt_end(odom);
+    }
+    fn boxed_clone<'a>(&self) -> Box<dyn PathSegment + 'a> {
+        todo!()
     }
 }
 
