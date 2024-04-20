@@ -2,6 +2,7 @@ use communication::path::Action;
 
 use crate::odom::Odometry;
 use crate::pid::Pid;
+use crate::triports::*;
 use crate::vec::Vec2;
 
 use std::collections::VecDeque;
@@ -656,7 +657,7 @@ impl PathSegment for RepeatSegment {
 }
 
 #[derive(Debug)]
-struct WhileSegment {
+pub struct WhileSegment {
     main: Path,
     secondary: Path,
     secondary_ended: bool,
@@ -690,6 +691,37 @@ impl PathSegment for WhileSegment {
     }
     fn boxed_clone<'a>(&self) -> Box<dyn PathSegment + 'a> {
         todo!()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ChangeTriports {
+    triports: Vec<Triport>,
+    change: TriportChange,
+}
+
+impl PathSegment for ChangeTriports {
+    fn transform<'a>(self: Box<Self>, _: &Odometry) -> Vec<Box<dyn PathSegment + 'a>> {
+        unreachable!("transform should never get called since finished_transform is true")
+    }
+    fn finished_transform(&self) -> bool {
+        true
+    }
+    fn start(&mut self, _: &Odometry, _: &mut Pid) {
+        for triport in &self.triports {
+            triport.change(self.change);
+        }
+    }
+    fn follow(&mut self, _: &Odometry, _: &mut Pid) -> [f64; 2] {
+        unreachable!(
+            "follow should never get called on since end_follow always returns Some(Vec::new())"
+        )
+    }
+    fn end_follow<'a>(&mut self, _: &Odometry) -> Option<Vec<Box<dyn PathSegment + 'a>>> {
+        Some(Vec::new())
+    }
+    fn boxed_clone<'a>(&self) -> Box<dyn PathSegment + 'a> {
+        Box::new(self.clone())
     }
 }
 

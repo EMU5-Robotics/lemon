@@ -52,7 +52,7 @@ pub struct Brain {
     pkt_buffer: [Packet; 2],
     last_update: Instant,
     motors: [Motor; 20],
-    triports: std::sync::atomic::AtomicU8,
+    triports: std::sync::Arc<std::sync::atomic::AtomicU8>,
 }
 
 impl Brain {
@@ -97,7 +97,7 @@ impl Brain {
                     .collect::<Vec<_>>()
                     .try_into()
                     .unwrap(),
-                triports: std::sync::atomic::AtomicU8::new(0),
+                triports: std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0)),
             },
             pkt_buffer.into(),
         )
@@ -174,7 +174,7 @@ impl Brain {
     }
     pub fn get_triport(&self, port: u8) -> Triport {
         assert!((1..=8).contains(&port));
-        unsafe { Triport::new(&self.triports, port - 1) }
+        unsafe { Triport::new(self.triports.clone(), port - 1) }
     }
 }
 
