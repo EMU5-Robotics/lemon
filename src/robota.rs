@@ -243,7 +243,7 @@ fn auton_path_a(brain: &mut Brain) -> Path {
         Box::new(load_balls(brain, 23)),
         Box::new(ChangeTriports::new(vec![right_wing], TriportChange::Active)),
         Box::new(MinSegment::TurnTo(80f64.to_radians())),
-        Box::new(Ram::new(0.2, Duration::from_millis(500))),
+        Box::new(Ram::new(0.2, Duration::from_millis(600))),
         Box::new(MinSegment::TurnTo(45f64.to_radians())),
     ])
 }

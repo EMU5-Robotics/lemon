@@ -8,19 +8,19 @@ use std::{
 
 const LEFT_DIST: f64 = 0.05;
 const RIGHT_DIST: f64 = 0.05;
-const BACK_DIST: f64 = 0.1;
+//const BACK_DIST: f64 = 0.1;
 
 const NUM_LIN: usize = 30;
 const INV_NUM_LIN: f64 = 1.0 / NUM_LIN as f64;
 
 pub struct TrackingWheels {
-    back: Amt22<Spi>,
+    //back: Amt22<Spi>,
     left: Amt22<Spi>,
     right: Amt22<Spi>,
     // zero offset in rotations
-    zeros: [f64; 3],
-    distances: [f64; 3],
-    last_raw: [f64; 3],
+    zeros: [f64; 2],
+    distances: [f64; 2],
+    last_raw: [f64; 2],
 }
 
 impl TrackingWheels {
@@ -37,19 +37,19 @@ impl TrackingWheels {
         };
         let mut left = get_enc(rppal::spi::SlaveSelect::Ss0);
         let mut right = get_enc(rppal::spi::SlaveSelect::Ss1);
-        let mut back = get_enc(rppal::spi::SlaveSelect::Ss2);
+        //let mut back = get_enc(rppal::spi::SlaveSelect::Ss2);
         left.reset(Some(&mut delay)).unwrap();
         right.reset(Some(&mut delay)).unwrap();
-        back.reset(Some(&mut delay)).unwrap();
+        //back.reset(Some(&mut delay)).unwrap();
 
         Self {
             // get zero offset measured in rotations
-            zeros: [&mut left, &mut right, &mut back].map(|v| Self::enc_to_rotations(v).unwrap()),
-            distances: [0.0; 3],
+            zeros: [&mut left, &mut right].map(|v| Self::enc_to_rotations(v).unwrap()),
+            distances: [0.0; 2],
             left,
             right,
-            back,
-            last_raw: [0.0; 3],
+            //back,
+            last_raw: [0.0; 2],
         }
     }
     // returns signed rotations done
@@ -58,16 +58,15 @@ impl TrackingWheels {
         let (turns, subturns) = enc.read_absolute_position_raw().ok()?;
         Some(turns as f64 + Self::ENCODER_TICK_SCALE * subturns as f64)
     }
-    pub fn distances(&self) -> [f64; 3] {
-        let [l, r, b] = self.distances;
+    pub fn distances(&self) -> [f64; 2] {
+        let [l, r] = self.distances;
         // account for tracking wheel orientation
-        [l, r, b]
+        [l, r]
     }
     // returns distance in meters
     pub fn calc_distances(&mut self) {
         // get uncorrected rotation count
-        let rotations =
-            [&mut self.left, &mut self.right, &mut self.back].map(Self::enc_to_rotations);
+        let rotations = [&mut self.left, &mut self.right].map(Self::enc_to_rotations);
 
         // fallback to last value if read fails
         if let Some(r) = rotations[0] {
@@ -76,15 +75,11 @@ impl TrackingWheels {
         if let Some(r) = rotations[1] {
             self.last_raw[1] = r;
         }
-        if let Some(r) = rotations[2] {
-            self.last_raw[2] = r;
-        }
 
         // correct for zero offset
         let rotations = [
             self.last_raw[0] - self.zeros[0],
             self.last_raw[1] - self.zeros[1],
-            self.last_raw[2] - self.zeros[2],
         ];
 
         // multiply by tracking wheel circumference to figure out distance travelled
@@ -94,9 +89,6 @@ impl TrackingWheels {
         }
         if (self.distances[1] - new_distances[1]).abs() < 0.1 {
             self.distances[1] = new_distances[1];
-        }
-        if (self.distances[2] - new_distances[2]).abs() < 0.1 {
-            self.distances[2] = new_distances[2];
         }
     }
 }
@@ -130,10 +122,8 @@ impl Odometry {
         }
     }
     pub fn calc_position(&mut self) {
-        // gets the heading in radians
-        let last_heading = self.imu.heading();
         // gets the distances travelled by each tracking wheel in meters
-        let [last_left, last_right, last_back] = self.tracking_wheels.distances();
+        let [last_left, last_right] = self.tracking_wheels.distances();
 
         // update both the heading and wheel distances
         self.imu.calc_heading();
@@ -141,7 +131,7 @@ impl Odometry {
 
         // get the new heading and wheel positions
         let heading = self.imu.heading();
-        let [left, right, _] = self.tracking_wheels.distances();
+        let [left, right] = self.tracking_wheels.distances();
         self.last_10_times.push_back(Instant::now());
         self.last_10_times.pop_front();
         self.last_10_vals.push_back([left, right]);
