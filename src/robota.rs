@@ -10,6 +10,7 @@ mod robot;
 mod triports;
 mod vec;
 
+use crate::path::*;
 use brain::Brain;
 use communication::{
     packet::{FromMediator, ToMediator},
@@ -99,76 +100,10 @@ impl Robot {
         }
     }
     pub fn main_loop(&mut self) -> ! {
-        use communication::path::Action;
         let mut tuning_start = std::time::Instant::now();
         let mut start_heading = 0.0;
-        let (startx, starty) = (-0.3, -1.55);
-        let actions = [
-            Action::MoveTo {
-                pos: [0.9 - startx, -1.55 - starty],
-            },
-            Action::MoveTo {
-                pos: [1.5 - startx, -1.0 - starty],
-            },
-            Action::MoveTo {
-                pos: [1.6 - startx, -0.84 - starty],
-            },
-            Action::MoveTo {
-                pos: [1.6 - startx, -1.1 - starty],
-            },
-            Action::MoveTo { pos: [0.94, 0.67] },
-        ];
-
-        use crate::path::*;
-
-        let mut auton_path_two = crate::path::Path::new_from_actions(&actions);
-        let kicker = [
-            (self.brain.get_motor(13), false),
-            (self.brain.get_motor(1), true),
-        ];
-        let kick_ball = Path::new(vec![
-            Box::new(TimedSegment::new(
-                Box::new(PowerMotors::new(kicker.clone(), 1.0)),
-                Duration::from_millis(180),
-            )),
-            Box::new(TimedSegment::new(
-                Box::new(Nop {}),
-                Duration::from_millis(400),
-            )),
-            Box::new(TimedSegment::new(
-                Box::new(PowerMotors::new(kicker.clone(), -0.6)),
-                Duration::from_millis(300),
-            )),
-            Box::new(TimedSegment::new(
-                Box::new(Nop {}),
-                Duration::from_millis(400),
-            )),
-        ]);
-        let load_balls = crate::path::Path::new(vec![
-            Box::new(TimedSegment::new(
-                Box::new(PowerMotors::new(kicker.clone(), 0.8)),
-                Duration::from_millis(80),
-            )),
-            Box::new(TimedSegment::new(
-                Box::new(PowerMotors::new(kicker.clone(), -0.2)),
-                Duration::from_millis(100),
-            )),
-            Box::new(TimedSegment::new(
-                Box::new(Nop {}),
-                Duration::from_millis(500),
-            )),
-            Box::new(RepeatSegment::new(Box::new(kick_ball), 22)),
-        ]);
-        let mut auton_path = Path::new(vec![
-            Box::new(MinSegment::TurnTo(80f64.to_radians())),
-            Box::new(Ram::new(0.2, Duration::from_millis(500))),
-            Box::new(MinSegment::TurnTo(45f64.to_radians())),
-            Box::new(MinSegment::MoveRel(1.8)),
-        ]);
-        let mut auton_path = load_balls;
-        //auton_path.extend_front(Box::new(load_balls));
-        //let mut hold_bar = Box::new(Ram::new(-0.1, Duration::from_secs(100_000)));
         let mut angle_pid = Pid::new(0.35, 0.035, 2.2);
+        let mut auton_path = auton_path_a(&mut self.brain);
         loop {
             self.handle_events();
 
@@ -246,7 +181,7 @@ impl Robot {
             self.drivebase.set_side_percent_max_rpm(l, r, 200.0);
         }
     }
-    fn auton(&mut self, route: &mut crate::path::Path, angle_pid: &mut Pid) {
+    fn auton(&mut self, _: &mut crate::path::Path, _: &mut Pid) {
         log::info!("auton program: {}", self.brain.auton_program());
     }
 
@@ -263,3 +198,52 @@ impl Robot {
 }
 
 const TURN_MULTIPLIER: f64 = 0.5;
+
+fn load_balls(brain: &mut Brain, n: usize) -> Path {
+    let kicker = [(brain.get_motor(13), false), (brain.get_motor(1), true)];
+    let kick_ball = Path::new(vec![
+        Box::new(TimedSegment::new(
+            Box::new(PowerMotors::new(kicker.clone(), 1.0)),
+            Duration::from_millis(180),
+        )),
+        Box::new(TimedSegment::new(
+            Box::new(Nop {}),
+            Duration::from_millis(400),
+        )),
+        Box::new(TimedSegment::new(
+            Box::new(PowerMotors::new(kicker.clone(), -0.6)),
+            Duration::from_millis(300),
+        )),
+        Box::new(TimedSegment::new(
+            Box::new(Nop {}),
+            Duration::from_millis(400),
+        )),
+    ]);
+    Path::new(vec![
+        Box::new(TimedSegment::new(
+            Box::new(PowerMotors::new(kicker.clone(), 0.8)),
+            Duration::from_millis(80),
+        )),
+        Box::new(TimedSegment::new(
+            Box::new(PowerMotors::new(kicker.clone(), -0.2)),
+            Duration::from_millis(100),
+        )),
+        Box::new(TimedSegment::new(
+            Box::new(Nop {}),
+            Duration::from_millis(500),
+        )),
+        Box::new(RepeatSegment::new(Box::new(kick_ball), n)),
+    ])
+}
+
+fn auton_path_a(brain: &mut Brain) -> Path {
+    use crate::triports::*;
+    let right_wing = brain.get_triport(1);
+    Path::new(vec![
+        Box::new(load_balls(brain, 23)),
+        Box::new(ChangeTriports::new(vec![right_wing], TriportChange::Active)),
+        Box::new(MinSegment::TurnTo(80f64.to_radians())),
+        Box::new(Ram::new(0.2, Duration::from_millis(500))),
+        Box::new(MinSegment::TurnTo(45f64.to_radians())),
+    ])
+}

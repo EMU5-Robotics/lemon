@@ -700,6 +700,12 @@ pub struct ChangeTriports {
     change: TriportChange,
 }
 
+impl ChangeTriports {
+    pub fn new(triports: Vec<Triport>, change: TriportChange) -> Self {
+        Self { triports, change }
+    }
+}
+
 impl PathSegment for ChangeTriports {
     fn transform<'a>(self: Box<Self>, _: &Odometry) -> Vec<Box<dyn PathSegment + 'a>> {
         unreachable!("transform should never get called since finished_transform is true")
