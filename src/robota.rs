@@ -7,6 +7,7 @@ mod odom;
 mod path;
 mod pid;
 mod robot;
+mod triports;
 mod vec;
 
 use brain::Brain;
@@ -156,7 +157,7 @@ impl Robot {
                 Box::new(Nop {}),
                 Duration::from_millis(500),
             )),
-            Box::new(RepeatSegment::new(Box::new(kick_ball), 12)),
+            Box::new(RepeatSegment::new(Box::new(kick_ball), 22)),
         ]);
         let mut auton_path = Path::new(vec![
             Box::new(MinSegment::TurnTo(80f64.to_radians())),
@@ -164,7 +165,8 @@ impl Robot {
             Box::new(MinSegment::TurnTo(45f64.to_radians())),
             Box::new(MinSegment::MoveRel(1.8)),
         ]);
-        auton_path.extend_front(Box::new(load_balls));
+        let mut auton_path = load_balls;
+        //auton_path.extend_front(Box::new(load_balls));
         //let mut hold_bar = Box::new(Ram::new(-0.1, Duration::from_secs(100_000)));
         let mut angle_pid = Pid::new(0.35, 0.035, 2.2);
         loop {

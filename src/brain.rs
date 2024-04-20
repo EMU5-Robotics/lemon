@@ -10,6 +10,7 @@ use crate::{
     controller::Controller,
     motor::{self, Motor},
     robot::RobotState,
+    triports::Triport,
 };
 
 // this is not designed to ever be mutated
@@ -51,6 +52,7 @@ pub struct Brain {
     pkt_buffer: [Packet; 2],
     last_update: Instant,
     motors: [Motor; 20],
+    triports: std::sync::atomic::AtomicU8,
 }
 
 impl Brain {
@@ -95,6 +97,7 @@ impl Brain {
                     .collect::<Vec<_>>()
                     .try_into()
                     .unwrap(),
+                triports: std::sync::atomic::AtomicU8::new(0),
             },
             pkt_buffer.into(),
         )
@@ -147,6 +150,8 @@ impl Brain {
             }
         }
 
+        ctrl_pkt.triport_pins = self.triports.load(std::sync::atomic::Ordering::SeqCst);
+
         self.serial.set_control_pkt(ctrl_pkt);
     }
     pub fn set_gearboxes(&mut self, gearbox: Gearbox, ports: impl IntoIterator<Item = u8>) {
@@ -161,11 +166,15 @@ impl Brain {
             }
         }
     }
-    // This should be the only fatal failure point of the robot
-    // use get_motor with care (should we make this unsafe?)
+    // These should be the only fatal failure points of the robot
+    // use get_motor and get_triport with care (should we make this unsafe?)
     pub fn get_motor(&self, port: u8) -> Motor {
         assert!((1..=20).contains(&port));
         self.motors[port as usize - 1].clone()
+    }
+    pub fn get_triport(&self, port: u8) -> Triport {
+        assert!((1..=8).contains(&port));
+        unsafe { Triport::new(&self.triports, port - 1) }
     }
 }
 
