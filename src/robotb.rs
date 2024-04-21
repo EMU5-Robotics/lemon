@@ -9,6 +9,7 @@ mod controller;
 mod loader;
 mod motor;
 mod robot;
+mod triports;
 
 use brain::Brain;
 

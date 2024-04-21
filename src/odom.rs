@@ -6,8 +6,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-const LEFT_DIST: f64 = 0.05;
-const RIGHT_DIST: f64 = 0.05;
+const LEFT_DIST: f64 = 0.045;
+const RIGHT_DIST: f64 = 0.045;
 //const BACK_DIST: f64 = 0.1;
 
 const NUM_LIN: usize = 30;

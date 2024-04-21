@@ -35,6 +35,7 @@ impl Triport {
             .fetch_and(!(1 << self.index), Ordering::Relaxed);
     }
     pub fn toggle(&self) {
-        self.triports.fetch_xor(1 << self.index, Ordering::Relaxed);
+        let old_val = self.triports.fetch_xor(1 << self.index, Ordering::SeqCst);
+        log::info!("old val: {old_val}");
     }
 }

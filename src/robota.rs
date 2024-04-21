@@ -66,7 +66,7 @@ impl Robot {
             &mut brain,
         );
 
-        let odom = Odometry::new(ROBOT_A_IMU_BIAS, 0x68u16);
+        let odom = Odometry::new(0.004167368000717639 - 0.007987093436054596, 0x69u16); //ROBOT_A_IMU_BIAS, 0x69u16);
 
         Self {
             state: RobotState::default(),
@@ -102,8 +102,35 @@ impl Robot {
     pub fn main_loop(&mut self) -> ! {
         let mut tuning_start = std::time::Instant::now();
         let mut start_heading = 0.0;
+        use crate::triports::*;
         let mut angle_pid = Pid::new(0.35, 0.035, 2.2);
-        let mut auton_path = auton_path_a(&mut self.brain);
+        //let mut auton_path = auton_path_a(&mut self.brain);
+        //let left_triport = self.brain.get_triport(1);
+        //let right_triport = self.brain.get_triport(2);
+        let triports: Vec<_> = (1..=8).map(|i| self.brain.get_triport(i)).collect();
+        /*let mut auton_path = Path::new(vec![
+            Box::new(ChangeTriports::new(
+                triports.clone(), //vec![left_triport.clone()],
+                TriportChange::Active,
+            )),
+            Box::new(TimedSegment::new(Box::new(Nop {}), Duration::from_secs(1))),
+            Box::new(ChangeTriports::new(
+                triports.clone(),
+                TriportChange::Inactive,
+            )),
+            Box::new(TimedSegment::new(Box::new(Nop {}), Duration::from_secs(1))),
+            /*Box::new(RepeatSegment::new(
+                Box::new(Path::new(vec![
+                    Box::new(ChangeTriports::new(
+                        triports.clone(), //vec![left_triport, right_triport],
+                        TriportChange::Toggle,
+                    )),
+                    Box::new(TimedSegment::new(Box::new(Nop {}), Duration::from_secs(1))),
+                ])),
+                5,
+            )),*/
+        ]);*/
+        let mut auton_path = auton_path_a(&mut self.brain, true);
         loop {
             self.handle_events();
 
@@ -144,6 +171,15 @@ impl Robot {
             (forward_rate + turning_rate * TURN_MULTIPLIER).clamp(-1.0, 1.0),
             (forward_rate - turning_rate * TURN_MULTIPLIER).clamp(-1.0, 1.0),
         );
+        log::info!("{:?} @ {:?}", self.odom.position(), self.odom.heading());
+
+        if self.controller.pressed(ControllerButtons::Y) {
+            log::info!("TOGGLED");
+            let triport = self.brain.get_triport(1);
+            let triport_two = self.brain.get_triport(2);
+            triport.toggle();
+            triport_two.toggle();
+        }
         use communication::plot;
         plot!("heading (degrees)", self.odom.heading().to_degrees());
         if self.controller.pressed(ControllerButtons::A) {
@@ -181,7 +217,10 @@ impl Robot {
             self.drivebase.set_side_percent_max_rpm(l, r, 200.0);
         }
     }
-    fn auton(&mut self, _: &mut crate::path::Path, _: &mut Pid) {
+    fn auton(&mut self, route: &mut crate::path::Path, angle_pid: &mut Pid) {
+        let [l, r] = route.follow(&self.odom, angle_pid);
+        //plot!("lr", [l, r]);
+        self.drivebase.set_side_percent_max_rpm(l, r, 200.0);
         log::info!("auton program: {}", self.brain.auton_program());
     }
 
@@ -192,40 +231,39 @@ impl Robot {
         communication::odom(self.odom.position(), self.odom.heading());
 
         let [l, r] = route.follow(&self.odom, angle_pid);
-        plot!("lr", [l, r]);
+        //plot!("lr", [l, r]);
         self.drivebase.set_side_percent_max_rpm(l, r, 200.0);
     }
 }
 
 const TURN_MULTIPLIER: f64 = 0.5;
-
 fn load_balls(brain: &mut Brain, n: usize) -> Path {
     let kicker = [(brain.get_motor(13), false), (brain.get_motor(1), true)];
     let kick_ball = Path::new(vec![
         Box::new(TimedSegment::new(
-            Box::new(PowerMotors::new(kicker.clone(), 1.0)),
-            Duration::from_millis(180),
+            Box::new(PowerMotors::new(kicker.clone(), -1.0)),
+            Duration::from_millis(220),
         )),
         Box::new(TimedSegment::new(
             Box::new(Nop {}),
             Duration::from_millis(400),
         )),
         Box::new(TimedSegment::new(
-            Box::new(PowerMotors::new(kicker.clone(), -0.6)),
+            Box::new(PowerMotors::new(kicker.clone(), 0.6)),
             Duration::from_millis(300),
         )),
         Box::new(TimedSegment::new(
             Box::new(Nop {}),
-            Duration::from_millis(400),
+            Duration::from_millis(800),
         )),
     ]);
     Path::new(vec![
         Box::new(TimedSegment::new(
-            Box::new(PowerMotors::new(kicker.clone(), 0.8)),
+            Box::new(PowerMotors::new(kicker.clone(), -0.8)),
             Duration::from_millis(80),
         )),
         Box::new(TimedSegment::new(
-            Box::new(PowerMotors::new(kicker.clone(), -0.2)),
+            Box::new(PowerMotors::new(kicker.clone(), 0.2)),
             Duration::from_millis(100),
         )),
         Box::new(TimedSegment::new(
@@ -236,14 +274,52 @@ fn load_balls(brain: &mut Brain, n: usize) -> Path {
     ])
 }
 
-fn auton_path_a(brain: &mut Brain) -> Path {
+fn auton_path_a(brain: &mut Brain, mirror: bool) -> Path {
     use crate::triports::*;
-    let right_wing = brain.get_triport(1);
+    let (out_wing, in_wing) = if mirror {
+        (brain.get_triport(2), brain.get_triport(1))
+    } else {
+        (brain.get_triport(1), brain.get_triport(2))
+    };
     Path::new(vec![
-        Box::new(load_balls(brain, 23)),
-        Box::new(ChangeTriports::new(vec![right_wing], TriportChange::Active)),
-        Box::new(MinSegment::TurnTo(80f64.to_radians())),
-        Box::new(Ram::new(0.2, Duration::from_millis(600))),
+        Box::new(load_balls(brain, 11)),
+        Box::new(MinSegment::TurnTo(if mirror {
+            -85f64.to_radians()
+        } else {
+            85f64.to_radians()
+        })),
+        //Box::new(ChangeTriports::new(vec![out_wing], TriportChange::Active)),
+        Box::new(Ram::new(0.3, Duration::from_millis(800))),
+        Box::new(MinSegment::TurnTo(if mirror {
+            -55f64.to_radians()
+        } else {
+            55f64.to_radians()
+        })),
+        Box::new(Ram::new(0.4, Duration::from_millis(700))),
+        Box::new(MinSegment::TurnTo(if mirror {
+            -50f64.to_radians()
+        } else {
+            50f64.to_radians()
+        })),
+        Box::new(Ram::new(0.4, Duration::from_millis(2000))),
+        Box::new(SpeedLimiter::new(
+            Path::new(vec![Box::new(MinSegment::MoveTo([
+                /*1.4878628699954215,
+                -1.6524648667892217,*/
+                1.4864, -1.72915,
+            ]))]),
+            0.45,
+        )),
+        //Box::new(MinSegment::MoveTo([1.70, -1.80])),
+        Box::new(MinSegment::TurnTo(0f64.to_radians())),
+        //Box::new(MinSegment::MoveTo([2.350580889611332, -1.6244943507316716])),
+        Box::new(MinSegment::MoveTo([2.1804, -1.81912])),
+        Box::new(Ram::new(-0.2, Duration::from_millis(500))),
         Box::new(MinSegment::TurnTo(45f64.to_radians())),
+        Box::new(Ram::new(0.80, Duration::from_millis(500))),
+        Box::new(Ram::new(-0.4, Duration::from_millis(1300))),
+        Box::new(MinSegment::MoveTo([2.1804, -1.81912])),
+        Box::new(MinSegment::TurnTo(0.55)),
+        Box::new(Ram::new(0.80, Duration::from_millis(500))),
     ])
 }

@@ -425,7 +425,7 @@ impl PathSegment for MoveRel {
         use communication::plot;
         plot!("dists", [end_dist, 2.0 * area / base]);
         plot!("end", [end.x(), end.y()]);
-        if 0.5 * (odom.side_velocities()[0] + odom.side_velocities()[1]) < 0.01 && end_dist < 0.05
+        if 0.5 * (odom.side_velocities()[0] + odom.side_velocities()[1]) < 0.01 && end_dist < 0.03
             || (end_dist < start_dist && start_dist > base)
         {
             log::info!(
@@ -703,6 +703,41 @@ pub struct ChangeTriports {
 impl ChangeTriports {
     pub fn new(triports: Vec<Triport>, change: TriportChange) -> Self {
         Self { triports, change }
+    }
+}
+
+#[derive(Debug)]
+pub struct SpeedLimiter {
+    main: Path,
+    limit: f64,
+}
+
+impl SpeedLimiter {
+    pub fn new(main: Path, limit: f64) -> Self {
+        Self { main, limit }
+    }
+}
+
+impl PathSegment for SpeedLimiter {
+    fn transform<'a>(self: Box<Self>, _: &Odometry) -> Vec<Box<dyn PathSegment + 'a>> {
+        unreachable!("transform should never get called since finished_transform is true")
+    }
+    fn finished_transform(&self) -> bool {
+        true
+    }
+    fn start(&mut self, _: &Odometry, _: &mut Pid) {}
+    fn follow(&mut self, odom: &Odometry, angle_pid: &mut Pid) -> [f64; 2] {
+        let fol = self.main.follow(odom, angle_pid);
+        [self.limit * fol[0], self.limit * fol[1]]
+    }
+    fn end_follow<'a>(&mut self, odom: &Odometry) -> Option<Vec<Box<dyn PathSegment + 'a>>> {
+        self.main.end_follow(odom)
+    }
+    fn abrupt_end(&mut self, odom: &Odometry) {
+        self.main.abrupt_end(odom);
+    }
+    fn boxed_clone<'a>(&self) -> Box<dyn PathSegment + 'a> {
+        todo!()
     }
 }
 
