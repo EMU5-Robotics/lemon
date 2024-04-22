@@ -208,8 +208,6 @@ impl Robot {
         self.drivebase.set_side_percent_max_rpm(l, r, 200.0);
     }
 }
-
-const TURN_MULTIPLIER: f64 = 0.5;
 fn load_balls(brain: &mut Brain, n: usize) -> Path {
     let kicker = [(brain.get_motor(13), false), (brain.get_motor(1), true)];
     let kick_ball = Path::new(vec![
@@ -240,20 +238,33 @@ fn load_balls(brain: &mut Brain, n: usize) -> Path {
             Duration::from_millis(500),
         )),
         Box::new(RepeatSegment::new(Box::new(kick_ball), n)),
+        Box::new(TimedSegment::new(
+            Box::new(PowerMotors::new(kicker.clone(), 1.0)),
+            Duration::from_millis(250),
+        )),
     ])
 }
+
+const TURN_MULTIPLIER: f64 = 0.5;
 fn blocker_up(brain: &mut Brain) -> Box<TimedSegment> {
     let blocker = [(brain.get_motor(18), false)];
     Box::new(TimedSegment::new(
         Box::new(PowerMotors::new(blocker, 1.0)),
-        Duration::from_millis(1000),
+        Duration::from_millis(500),
+    ))
+}
+fn blocker_down(brain: &mut Brain) -> Box<TimedSegment> {
+    let blocker = [(brain.get_motor(18), false)];
+    Box::new(TimedSegment::new(
+        Box::new(PowerMotors::new(blocker, -1.0)),
+        Duration::from_millis(500),
     ))
 }
 
 fn auton_path(brain: &mut Brain) -> Path {
     let out_wing = brain.get_triport(2);
     Path::new(vec![
-        //Box::new(load_balls(brain, 11)),
+        Box::new(load_balls(brain, 11)),
         Box::new(MinSegment::TurnTo(-85f64.to_radians())),
         Box::new(ChangeTriports::new(
             vec![out_wing.clone()],
@@ -263,10 +274,15 @@ fn auton_path(brain: &mut Brain) -> Path {
         Box::new(MinSegment::TurnTo(-55f64.to_radians())),
         Box::new(Ram::new(0.4, Duration::from_millis(700))),
         Box::new(MinSegment::TurnTo(-50f64.to_radians())),
-        Box::new(Ram::new(0.4, Duration::from_millis(2500))),
+        Box::new(Ram::new(0.4, Duration::from_millis(2800))),
+        //
+        //Box::new(MinSegment::TurnTo(-25f64.to_radians())),
+        //Box::new(Ram::new(0.4, Duration::from_millis(500))),
+        //
         Box::new(MinSegment::TurnTo(0f64.to_radians())),
-        Box::new(MinSegment::MoveTo([2.1804, -1.81912])),
+        Box::new(Ram::new(0.4, Duration::from_millis(1000))),
         Box::new(Ram::new(-0.2, Duration::from_millis(500))),
+        Box::new(Ram::new(0.2, Duration::from_millis(500))),
         Box::new(MinSegment::TurnTo(0.55)),
         Box::new(ChangeTriports::new(
             vec![out_wing],
@@ -277,10 +293,13 @@ fn auton_path(brain: &mut Brain) -> Path {
             Duration::from_millis(200),
         )),
         Box::new(Ram::new(0.80, Duration::from_millis(500))),
-        Box::new(MinSegment::TurnTo(195f64.to_radians())),
+        Box::new(Ram::new(-0.2, Duration::from_millis(500))),
+        Box::new(MinSegment::TurnTo(-170f64.to_radians())),
         Box::new(Ram::new(0.6, Duration::from_millis(1000))),
         Box::new(MinSegment::TurnTo(135f64.to_radians())),
+        Box::new(Ram::new(0.4, Duration::from_millis(1700))),
+        Box::new(MinSegment::TurnTo(-45f64.to_radians())),
         blocker_up(brain),
-        Box::new(Ram::new(0.15, Duration::from_millis(4000))),
+        Box::new(Ram::new(0.2, Duration::from_millis(750))),
     ])
 }
