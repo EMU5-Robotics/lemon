@@ -265,11 +265,11 @@ fn auton_path(brain: &mut Brain) -> Path {
     let out_wing = brain.get_triport(2);
     Path::new(vec![
         Box::new(load_balls(brain, 11)),
-        Box::new(MinSegment::TurnTo(-85f64.to_radians())),
         Box::new(ChangeTriports::new(
             vec![out_wing.clone()],
             crate::triports::TriportChange::Active,
         )),
+        Box::new(MinSegment::TurnTo(-85f64.to_radians())),
         Box::new(Ram::new(0.3, Duration::from_millis(800))),
         Box::new(MinSegment::TurnTo(-55f64.to_radians())),
         Box::new(Ram::new(0.4, Duration::from_millis(700))),
@@ -300,6 +300,6 @@ fn auton_path(brain: &mut Brain) -> Path {
         Box::new(Ram::new(0.4, Duration::from_millis(1700))),
         Box::new(MinSegment::TurnTo(-45f64.to_radians())),
         blocker_up(brain),
-        Box::new(Ram::new(0.2, Duration::from_millis(750))),
+        Box::new(Ram::new(0.2, Duration::from_millis(1000))),
     ])
 }

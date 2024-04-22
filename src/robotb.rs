@@ -283,7 +283,6 @@ fn blocker_up(brain: &mut Brain) -> Box<TimedSegment> {
 }
 
 fn auton_path_a(brain: &mut Brain, mirror: bool) -> Path {
-    use crate::triports::*;
     let (out_wing, in_wing) = if mirror {
         (brain.get_triport(2), brain.get_triport(1))
     } else {
@@ -297,17 +296,31 @@ fn auton_path_a(brain: &mut Brain, mirror: bool) -> Path {
         Box::new(load_balls(brain, 0)),
         Box::new(MinSegment::MoveTo([1.254, 0.724])),
         Box::new(MinSegment::TurnTo(-45f64.to_radians())),
+        /*Box::new(ChangeTriports::new(
+            vec![in_wing.clone(), out_wing.clone()],
+            crate::triports::TriportChange::Active,
+        )),*/
         Box::new(TimedSegment::new(
             Box::new(Nop {}),
-            Duration::from_millis(1000),
+            Duration::from_millis(21000),
         )),
-        Box::new(TimedSegment::new(
+        Box::new(Ram::new(0.2, Duration::from_millis(500))),
+        Box::new(MinSegment::TurnRel(45f64.to_radians())),
+        Box::new(MinSegment::TurnRel(-45f64.to_radians())),
+        Box::new(Ram::new(-0.2, Duration::from_millis(500))),
+        /*Box::new(ChangeTriports::new(
+            vec![in_wing.clone(), out_wing.clone()],
+            crate::triports::TriportChange::Inactive,
+        )),*/
+        /*Box::new(TimedSegment::new(
             Box::new(MinSegment::MoveTo([1.38, 0.0])),
             Duration::from_millis(3000),
-        )),
-        Box::new(MinSegment::MoveTo([0.0, 0.0])),
-        Box::new(MinSegment::TurnTo(0.0)),
+        )),*/
+        //Box::new(MinSegment::MoveTo([0.0, 0.0])),
+        Box::new(MinSegment::TurnTo(-70f64.to_radians())),
+        Box::new(Ram::new(0.4, Duration::from_millis(1300))),
+        Box::new(MinSegment::TurnTo(-170f64.to_radians())),
         blocker_up(brain),
-        Box::new(Ram::new(0.1, Duration::from_millis(2000))),
+        Box::new(Ram::new(0.1, Duration::from_millis(6000))),
     ])
 }
