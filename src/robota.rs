@@ -102,35 +102,8 @@ impl Robot {
     pub fn main_loop(&mut self) -> ! {
         let mut tuning_start = std::time::Instant::now();
         let mut start_heading = 0.0;
-        use crate::triports::*;
         let mut angle_pid = Pid::new(0.35, 0.035, 2.2);
-        //let mut auton_path = auton_path_a(&mut self.brain);
-        //let left_triport = self.brain.get_triport(1);
-        //let right_triport = self.brain.get_triport(2);
-        let triports: Vec<_> = (1..=8).map(|i| self.brain.get_triport(i)).collect();
-        /*let mut auton_path = Path::new(vec![
-            Box::new(ChangeTriports::new(
-                triports.clone(), //vec![left_triport.clone()],
-                TriportChange::Active,
-            )),
-            Box::new(TimedSegment::new(Box::new(Nop {}), Duration::from_secs(1))),
-            Box::new(ChangeTriports::new(
-                triports.clone(),
-                TriportChange::Inactive,
-            )),
-            Box::new(TimedSegment::new(Box::new(Nop {}), Duration::from_secs(1))),
-            /*Box::new(RepeatSegment::new(
-                Box::new(Path::new(vec![
-                    Box::new(ChangeTriports::new(
-                        triports.clone(), //vec![left_triport, right_triport],
-                        TriportChange::Toggle,
-                    )),
-                    Box::new(TimedSegment::new(Box::new(Nop {}), Duration::from_secs(1))),
-                ])),
-                5,
-            )),*/
-        ]);*/
-        let mut auton_path = auton_path_a(&mut self.brain, true);
+        let mut auton_path = auton_path(&mut self.brain);
         loop {
             self.handle_events();
 
@@ -214,7 +187,7 @@ impl Robot {
         // prevent the robot from moving when "tuning" the IMU
         if !self.controller.held(ControllerButtons::B) {
             // for some reason the gearbox doesn't set properly
-            self.drivebase.set_side_percent_voltage(l, r); //set_side_percent_max_rpm(l, r, 200.0);
+            self.drivebase.set_side_percent_voltage(l, r);
         }
     }
     fn auton(&mut self, route: &mut crate::path::Path, angle_pid: &mut Pid) {
@@ -244,10 +217,6 @@ fn load_balls(brain: &mut Brain, n: usize) -> Path {
             Box::new(PowerMotors::new(kicker.clone(), -1.0)),
             Duration::from_millis(220),
         )),
-        /*Box::new(TimedSegment::new(
-            Box::new(Nop {}),
-            Duration::from_millis(400),
-        )),*/
         Box::new(TimedSegment::new(
             Box::new(PowerMotors::new(kicker.clone(), 0.6)),
             Duration::from_millis(300),
@@ -273,53 +242,45 @@ fn load_balls(brain: &mut Brain, n: usize) -> Path {
         Box::new(RepeatSegment::new(Box::new(kick_ball), n)),
     ])
 }
+fn blocker_up(brain: &mut Brain) -> Box<TimedSegment> {
+    let blocker = [(brain.get_motor(18), false)];
+    Box::new(TimedSegment::new(
+        Box::new(PowerMotors::new(blocker, 1.0)),
+        Duration::from_millis(1000),
+    ))
+}
 
-fn auton_path_a(brain: &mut Brain, mirror: bool) -> Path {
-    use crate::triports::*;
-    let (out_wing, in_wing) = if mirror {
-        (brain.get_triport(2), brain.get_triport(1))
-    } else {
-        (brain.get_triport(1), brain.get_triport(2))
-    };
+fn auton_path(brain: &mut Brain) -> Path {
+    let out_wing = brain.get_triport(2);
     Path::new(vec![
         //Box::new(load_balls(brain, 11)),
-        Box::new(MinSegment::TurnTo(if mirror {
-            -85f64.to_radians()
-        } else {
-            85f64.to_radians()
-        })),
-        Box::new(ChangeTriports::new(vec![out_wing], TriportChange::Active)),
-        Box::new(Ram::new(0.3, Duration::from_millis(800))),
-        Box::new(MinSegment::TurnTo(if mirror {
-            -55f64.to_radians()
-        } else {
-            55f64.to_radians()
-        })),
-        Box::new(Ram::new(0.4, Duration::from_millis(700))),
-        Box::new(MinSegment::TurnTo(if mirror {
-            -50f64.to_radians()
-        } else {
-            50f64.to_radians()
-        })),
-        Box::new(Ram::new(0.4, Duration::from_millis(2000))),
-        Box::new(SpeedLimiter::new(
-            Path::new(vec![Box::new(MinSegment::MoveTo([
-                /*1.4878628699954215,
-                -1.6524648667892217,*/
-                1.4864, -1.72915,
-            ]))]),
-            0.45,
+        Box::new(MinSegment::TurnTo(-85f64.to_radians())),
+        Box::new(ChangeTriports::new(
+            vec![out_wing.clone()],
+            crate::triports::TriportChange::Active,
         )),
-        //Box::new(MinSegment::MoveTo([1.70, -1.80])),
+        Box::new(Ram::new(0.3, Duration::from_millis(800))),
+        Box::new(MinSegment::TurnTo(-55f64.to_radians())),
+        Box::new(Ram::new(0.4, Duration::from_millis(700))),
+        Box::new(MinSegment::TurnTo(-50f64.to_radians())),
+        Box::new(Ram::new(0.4, Duration::from_millis(2500))),
         Box::new(MinSegment::TurnTo(0f64.to_radians())),
-        //Box::new(MinSegment::MoveTo([2.350580889611332, -1.6244943507316716])),
         Box::new(MinSegment::MoveTo([2.1804, -1.81912])),
         Box::new(Ram::new(-0.2, Duration::from_millis(500))),
         Box::new(MinSegment::TurnTo(0.55)),
+        Box::new(ChangeTriports::new(
+            vec![out_wing],
+            crate::triports::TriportChange::Inactive,
+        )),
+        Box::new(TimedSegment::new(
+            Box::new(Nop {}),
+            Duration::from_millis(200),
+        )),
         Box::new(Ram::new(0.80, Duration::from_millis(500))),
-        Box::new(Ram::new(-0.4, Duration::from_millis(1300))),
-        Box::new(MinSegment::MoveTo([2.1804, -1.81912])),
-        Box::new(MinSegment::TurnTo(0.55)),
-        Box::new(Ram::new(0.80, Duration::from_millis(500))),
+        Box::new(MinSegment::TurnTo(195f64.to_radians())),
+        Box::new(Ram::new(0.6, Duration::from_millis(1000))),
+        Box::new(MinSegment::TurnTo(135f64.to_radians())),
+        blocker_up(brain),
+        Box::new(Ram::new(0.15, Duration::from_millis(4000))),
     ])
 }
