@@ -214,7 +214,7 @@ impl Robot {
         // prevent the robot from moving when "tuning" the IMU
         if !self.controller.held(ControllerButtons::B) {
             // for some reason the gearbox doesn't set properly
-            self.drivebase.set_side_percent_max_rpm(l, r, 200.0);
+            self.drivebase.set_side_percent_voltage(l, r); //set_side_percent_max_rpm(l, r, 200.0);
         }
     }
     fn auton(&mut self, route: &mut crate::path::Path, angle_pid: &mut Pid) {
@@ -244,10 +244,10 @@ fn load_balls(brain: &mut Brain, n: usize) -> Path {
             Box::new(PowerMotors::new(kicker.clone(), -1.0)),
             Duration::from_millis(220),
         )),
-        Box::new(TimedSegment::new(
+        /*Box::new(TimedSegment::new(
             Box::new(Nop {}),
             Duration::from_millis(400),
-        )),
+        )),*/
         Box::new(TimedSegment::new(
             Box::new(PowerMotors::new(kicker.clone(), 0.6)),
             Duration::from_millis(300),
@@ -282,13 +282,13 @@ fn auton_path_a(brain: &mut Brain, mirror: bool) -> Path {
         (brain.get_triport(1), brain.get_triport(2))
     };
     Path::new(vec![
-        Box::new(load_balls(brain, 11)),
+        //Box::new(load_balls(brain, 11)),
         Box::new(MinSegment::TurnTo(if mirror {
             -85f64.to_radians()
         } else {
             85f64.to_radians()
         })),
-        //Box::new(ChangeTriports::new(vec![out_wing], TriportChange::Active)),
+        Box::new(ChangeTriports::new(vec![out_wing], TriportChange::Active)),
         Box::new(Ram::new(0.3, Duration::from_millis(800))),
         Box::new(MinSegment::TurnTo(if mirror {
             -55f64.to_radians()
@@ -315,7 +315,7 @@ fn auton_path_a(brain: &mut Brain, mirror: bool) -> Path {
         //Box::new(MinSegment::MoveTo([2.350580889611332, -1.6244943507316716])),
         Box::new(MinSegment::MoveTo([2.1804, -1.81912])),
         Box::new(Ram::new(-0.2, Duration::from_millis(500))),
-        Box::new(MinSegment::TurnTo(45f64.to_radians())),
+        Box::new(MinSegment::TurnTo(0.55)),
         Box::new(Ram::new(0.80, Duration::from_millis(500))),
         Box::new(Ram::new(-0.4, Duration::from_millis(1300))),
         Box::new(MinSegment::MoveTo([2.1804, -1.81912])),

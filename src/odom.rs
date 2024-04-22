@@ -35,8 +35,8 @@ impl TrackingWheels {
                     .unwrap();
             amt22::Amt22::new(spi, amt22::Resolution::Res12Bit)
         };
-        let mut left = get_enc(rppal::spi::SlaveSelect::Ss0);
-        let mut right = get_enc(rppal::spi::SlaveSelect::Ss1);
+        let mut left = get_enc(rppal::spi::SlaveSelect::Ss1);
+        let mut right = get_enc(rppal::spi::SlaveSelect::Ss0);
         //let mut back = get_enc(rppal::spi::SlaveSelect::Ss2);
         left.reset(Some(&mut delay)).unwrap();
         right.reset(Some(&mut delay)).unwrap();
