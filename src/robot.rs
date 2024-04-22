@@ -1,5 +1,4 @@
 use crate::brain;
-use crate::IS_SKILLS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RobotState {
@@ -12,8 +11,8 @@ pub enum RobotState {
 }
 
 impl RobotState {
-    pub fn from_brain_state(brain_state: brain::State) -> Self {
-        match (brain_state, IS_SKILLS) {
+    pub fn from_brain_state(brain_state: brain::State, is_skills: bool) -> Self {
+        match (brain_state, is_skills) {
             (brain::State::Disabled, _) => Self::Disabled,
             (brain::State::Auton, true) => Self::AutonSkills,
             (brain::State::Auton, false) => Self::DriverAuton,

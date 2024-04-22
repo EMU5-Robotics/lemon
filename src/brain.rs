@@ -117,7 +117,10 @@ impl Brain {
 
             *controller = self.pkt_buffer.clone().into();
 
-            RobotState::from_brain_state(self.pkt_buffer[0].brain_state)
+            RobotState::from_brain_state(
+                self.pkt_buffer[0].brain_state,
+                self.pkt_buffer[0].auton_program != 0,
+            )
         } else {
             // remove pressed/removed states to avoid handling them multiple times
             controller.update_no_change();

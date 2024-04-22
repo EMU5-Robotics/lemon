@@ -275,10 +275,6 @@ fn auton_path(brain: &mut Brain) -> Path {
         Box::new(Ram::new(0.4, Duration::from_millis(700))),
         Box::new(MinSegment::TurnTo(-50f64.to_radians())),
         Box::new(Ram::new(0.4, Duration::from_millis(2800))),
-        //
-        //Box::new(MinSegment::TurnTo(-25f64.to_radians())),
-        //Box::new(Ram::new(0.4, Duration::from_millis(500))),
-        //
         Box::new(MinSegment::TurnTo(0f64.to_radians())),
         Box::new(Ram::new(0.4, Duration::from_millis(1000))),
         Box::new(Ram::new(-0.2, Duration::from_millis(500))),
