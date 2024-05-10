@@ -1,143 +1,301 @@
+mod bmi088;
+mod brain;
+mod controller;
+mod drivebase;
+mod motor;
+mod odom;
+mod path;
+mod pid;
+mod robot;
+mod triports;
+mod vec;
+
+use crate::path::*;
+use brain::Brain;
+use communication::{
+    packet::{FromMediator, ToMediator},
+    Mediator,
+};
+use controller::Controller;
+use drivebase::Tankdrive;
+use odom::Odometry;
+use pid::Pid;
+use protocol::device::ControllerButtons;
+use robot::RobotState;
+
 use std::time::Duration;
 
-use lemon::{
-	parts::drive::Drive,
-	path::*,
-	state::{ControllerButtons, Gearbox, GlobalState, Motor},
-	units::*,
-};
-use robot_algorithms::prelude::Vec2;
+use crate::bmi088::ROBOT_A_IMU_BIAS;
 
-type Robot = lemon::Robot<Parts>;
-struct Parts {
-	flipper: Motor,
-	hang: [Motor; 2],
-	path: Option<Path>,
+const IS_SKILLS: bool = true;
+pub const BRAIN_TIMEOUT: Duration = Duration::from_millis(500);
+
+fn main() -> ! {
+    Robot::run();
 }
 
-pub fn main() -> anyhow::Result<()> {
-	let robot = Robot::setup(
-		create_parts,
-		create_drive,
-		None,
-		Some(user_control),
-		Some(auton),
-	)?;
-
-	robot.run()
+struct Robot {
+    state: RobotState,
+    brain: Brain,
+    controller: Controller,
+    drivebase: Tankdrive<3>,
+    mediator: Mediator,
+    odom: Odometry,
+    pid_angle: Pid,
 }
 
-fn user_control(robot: &mut Robot) {
-	let controller = robot.input.controller;
+// merge or move these functions?
+impl Robot {
+    pub fn run() -> ! {
+        let mut robot = Self::new();
+        robot.main_loop();
+    }
+    pub fn new() -> Self {
+        let mediator = communication::Logger::init(true).expect("This only panics when another logger is set. This should never be the case and indicates a problem with the code.");
 
-	if controller.button_pressed(ControllerButtons::UP) {
-		robot.base.reversed = false;
-	}
-	if controller.button_pressed(ControllerButtons::DOWN) {
-		robot.base.reversed = true;
-	}
+        // block until connection is establish with brain
+        log::info!("Connecting to the brain.");
+        let (mut brain, controller) = Brain::init();
+        log::info!("Connected to the brain.");
 
-	let axes = controller.axes_as_f32();
-	let d_power = axes[1];
-	let t_power = axes[2];
-	robot.base.drive(d_power, t_power);
+        // this is the drivetrain configuration for the nationals hang robot
+        let drivebase = Tankdrive::new(
+            [(11, false), (12, true), (17, true)],
+            [(14, false), (15, true), (16, false)],
+            protocol::device::Gearbox::Blue,
+            &mut brain,
+        );
 
-	lemon::move_voltage(
-		12_000,
-		ControllerButtons::R2,
-		ControllerButtons::R1,
-		&robot.parts.hang[..],
-		controller,
-	);
-	lemon::move_voltage(
-		12_000,
-		ControllerButtons::L1,
-		ControllerButtons::L2,
-		&[robot.parts.flipper.clone()],
-		controller,
-	)
+        let odom = Odometry::new(0.004167368000717639 - 0.007987093436054596, 0x69u16); //ROBOT_A_IMU_BIAS, 0x69u16);
+
+        Self {
+            state: RobotState::default(),
+            brain,
+            controller,
+            drivebase,
+            mediator,
+            odom,
+            pid_angle: Pid::new(0.35, 0.035, 2.2),
+        }
+    }
+    pub fn handle_events(&mut self) {
+        if let Ok(events) = self.mediator.poll_events() {
+            for event in events {
+                match event {
+                    ToMediator::Ping => {
+                        if let Err(e) = self.mediator.send_event(FromMediator::Pong) {
+                            eprintln!("Failed to send Pong event: {e}");
+                        }
+                    }
+                    ToMediator::Pid((kp, ki, kd)) => {
+                        self.pid_angle.kp = kp;
+                        self.pid_angle.ki = ki;
+                        self.pid_angle.kd = kd;
+                        self.pid_angle.reset();
+                        log::info!("PID values (angle) changed to {kp}|{ki}|{kd}");
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    pub fn main_loop(&mut self) -> ! {
+        let mut tuning_start = std::time::Instant::now();
+        let mut start_heading = 0.0;
+        let mut angle_pid = Pid::new(0.35, 0.035, 2.2);
+        let mut auton_path = auton_path(&mut self.brain);
+        loop {
+            self.handle_events();
+
+            // updates controller, robot state & motors
+            let new_state = self.brain.update_state(&mut self.controller, &self.state);
+            if new_state != self.state {
+                log::info!("State changed from {:?} to {new_state:?}", self.state);
+
+                // reset odom at start of auton
+                if new_state == RobotState::AutonSkills || new_state == RobotState::DriverAuton {
+                    self.odom.reset();
+                }
+            }
+            self.state = new_state;
+
+            self.odom.calc_position();
+
+            match self.state {
+                RobotState::Off | RobotState::Disabled => {}
+                RobotState::AutonSkills => self.auton_skills(&mut auton_path, &mut angle_pid),
+                RobotState::DriverAuton => self.auton(&mut auton_path, &mut angle_pid),
+                RobotState::DriverSkills => {
+                    self.driver(&mut tuning_start, &mut start_heading);
+                }
+                RobotState::DriverDriver => {
+                    self.driver(&mut tuning_start, &mut start_heading);
+                }
+            }
+            self.brain.write_changes();
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+    fn driver(&mut self, tuning_start: &mut std::time::Instant, start_heading: &mut f64) {
+        communication::odom(self.odom.position(), self.odom.heading());
+        let forward_rate = self.controller.ly();
+        let turning_rate = self.controller.rx();
+        let (mut l, mut r) = (
+            (forward_rate + turning_rate * TURN_MULTIPLIER).clamp(-1.0, 1.0),
+            (forward_rate - turning_rate * TURN_MULTIPLIER).clamp(-1.0, 1.0),
+        );
+        log::info!("{:?} @ {:?}", self.odom.position(), self.odom.heading());
+
+        if self.controller.pressed(ControllerButtons::Y) {
+            log::info!("TOGGLED");
+            let triport = self.brain.get_triport(1);
+            let triport_two = self.brain.get_triport(2);
+            triport.toggle();
+            triport_two.toggle();
+        }
+        use communication::plot;
+        plot!("heading (degrees)", self.odom.heading().to_degrees());
+        if self.controller.pressed(ControllerButtons::A) {
+            self.pid_angle
+                .set_target(self.odom.heading() + std::f64::consts::FRAC_PI_2);
+            self.pid_angle.reset();
+        }
+
+        if self.controller.held(ControllerButtons::A) {
+            let pw = self.pid_angle.poll(self.odom.heading()).clamp(-1.0, 1.0);
+            l = -pw;
+            r = pw;
+        }
+
+        if self.controller.pressed(ControllerButtons::B) {
+            *start_heading = self.odom.heading();
+            *tuning_start = std::time::Instant::now();
+            log::info!(
+                "PID tuning started with heading: {} ({}deg)",
+                start_heading,
+                start_heading.to_degrees()
+            );
+        } else if self.controller.released(ControllerButtons::B) {
+            let grad =
+                (self.odom.heading() - *start_heading) / tuning_start.elapsed().as_secs_f64();
+            log::info!(
+                "PID tuning finished with drift of {grad} ({}deg).",
+                grad.to_degrees()
+            );
+        }
+
+        // prevent the robot from moving when "tuning" the IMU
+        if !self.controller.held(ControllerButtons::B) {
+            // for some reason the gearbox doesn't set properly
+            self.drivebase.set_side_percent_voltage(l, r);
+        }
+    }
+    fn auton(&mut self, route: &mut crate::path::Path, angle_pid: &mut Pid) {
+        let [l, r] = route.follow(&self.odom, angle_pid);
+        //plot!("lr", [l, r]);
+        self.drivebase.set_side_percent_max_rpm(l, r, 200.0);
+        log::info!("auton program: {}", self.brain.auton_program());
+    }
+
+    fn auton_skills(&mut self, route: &mut crate::path::Path, angle_pid: &mut Pid) {
+        use communication::plot;
+        plot!("pos", self.odom.position());
+        plot!("heading", self.odom.heading().to_degrees());
+        communication::odom(self.odom.position(), self.odom.heading());
+
+        let [l, r] = route.follow(&self.odom, angle_pid);
+        //plot!("lr", [l, r]);
+        self.drivebase.set_side_percent_max_rpm(l, r, 200.0);
+    }
+}
+fn load_balls(brain: &mut Brain, n: usize) -> Path {
+    let kicker = [(brain.get_motor(13), false), (brain.get_motor(1), true)];
+    let kick_ball = Path::new(vec![
+        Box::new(TimedSegment::new(
+            Box::new(PowerMotors::new(kicker.clone(), -1.0)),
+            Duration::from_millis(220),
+        )),
+        Box::new(TimedSegment::new(
+            Box::new(PowerMotors::new(kicker.clone(), 0.6)),
+            Duration::from_millis(300),
+        )),
+        Box::new(TimedSegment::new(
+            Box::new(Nop {}),
+            Duration::from_millis(800),
+        )),
+    ]);
+    Path::new(vec![
+        Box::new(TimedSegment::new(
+            Box::new(PowerMotors::new(kicker.clone(), -0.8)),
+            Duration::from_millis(80),
+        )),
+        Box::new(TimedSegment::new(
+            Box::new(PowerMotors::new(kicker.clone(), 0.2)),
+            Duration::from_millis(100),
+        )),
+        Box::new(TimedSegment::new(
+            Box::new(Nop {}),
+            Duration::from_millis(500),
+        )),
+        Box::new(RepeatSegment::new(Box::new(kick_ball), n)),
+        Box::new(TimedSegment::new(
+            Box::new(PowerMotors::new(kicker.clone(), 1.0)),
+            Duration::from_millis(250),
+        )),
+    ])
 }
 
-fn auton(robot: &mut Robot) {
-	// Create auton path if it doesn't exist
-	if robot.path.is_none() {
-		match robot.input.v5_status.1.auton {
-			0 => robot.path = Some(auton_path(&robot.base, robot.flipper.clone())),
-			_ => robot.path = Some(other_auton_path()),
-		}
-	}
-	let mut path = robot.parts.path.take().unwrap();
-
-	// Follow the path
-	let (lv, rv) = match path.follow(&robot.odom, &mut robot.tpid) {
-		Some(v) => v,
-		None => (ConstZero::ZERO, ConstZero::ZERO),
-	};
-
-	// Set the drive speed
-	robot.base.set_velocity(lv, rv);
-
-	robot.path = Some(path);
+const TURN_MULTIPLIER: f64 = 0.5;
+fn blocker_up(brain: &mut Brain) -> Box<TimedSegment> {
+    let blocker = [(brain.get_motor(18), false)];
+    Box::new(TimedSegment::new(
+        Box::new(PowerMotors::new(blocker, 1.0)),
+        Duration::from_millis(500),
+    ))
+}
+fn blocker_down(brain: &mut Brain) -> Box<TimedSegment> {
+    let blocker = [(brain.get_motor(18), false)];
+    Box::new(TimedSegment::new(
+        Box::new(PowerMotors::new(blocker, -1.0)),
+        Duration::from_millis(500),
+    ))
 }
 
-fn auton_path(drive: &Drive, flipper: Motor) -> Path {
-	let open_net = PowerMotors::new(vec![12000], vec![flipper.clone()]).default_timer();
-	let drive_forward =
-		SetVel::new((meter_per_second!(1.0), meter_per_second!(1.0))).default_timer();
-
-	let drive_forward_and_open_net =
-		Aux::new(drive_forward, open_net).with_timer(Duration::from_secs(2));
-	Path::new(vec![
-		//PowerMotors::new(vec![12000, 12000], hang.to_vec()).with_timer(Duration::from_secs(10)),
-		PathSeg::line(Vec2::new(0.0, 0.0), Vec2::new(0.0, 1.49), false).default_timer(),
-		TurnTo::new(degree!(60.0)).default_timer(),
-		Nop::new().with_timer(Duration::from_millis(500)),
-		SetVel::new((meter_per_second!(5.0), meter_per_second!(5.0)))
-			.with_timer(Duration::from_secs(3)),
-		drive_forward_and_open_net,
-		PowerMotors::new(vec![-12000], vec![flipper.clone()]).with_timer(Duration::from_secs(2)),
-		SetVel::new((meter_per_second!(-0.5), meter_per_second!(-0.5)))
-			.with_timer(Duration::from_secs(1)),
-	])
-}
-
-fn other_auton_path() -> Path {
-	Path::new(vec![
-		SetVel::new((meter_per_second!(1.0), meter_per_second!(1.0)))
-			.with_timer(Duration::from_millis(500)),
-		SetVel::new((meter_per_second!(-1.0), meter_per_second!(-1.0)))
-			.with_timer(Duration::from_millis(500)),
-	])
-}
-
-fn create_parts(state: &mut GlobalState) -> anyhow::Result<Parts> {
-	let flipper = state.take_motor(10, false);
-	let hang = [state.take_motor(18, true), state.take_motor(19, false)];
-
-	Ok(Parts {
-		flipper,
-		hang,
-		path: None,
-	})
-}
-
-fn create_drive(state: &mut GlobalState) -> anyhow::Result<Drive> {
-	let drive = Drive::new(
-		state.network.rerun_logger(),
-		[
-			state.take_motor(16, true),
-			state.take_motor(15, true),
-			state.take_motor(14, true),
-		],
-		[
-			state.take_motor(17, false),
-			state.take_motor(12, false),
-			state.take_motor(11, false),
-		],
-		Gearbox::Blue,
-		0.4,
-	);
-	state.serial.set_gearboxes(drive.get_gearboxes());
-
-	Ok(drive)
+fn auton_path(brain: &mut Brain) -> Path {
+    let out_wing = brain.get_triport(2);
+    Path::new(vec![
+        Box::new(load_balls(brain, 11)),
+        Box::new(ChangeTriports::new(
+            vec![out_wing.clone()],
+            crate::triports::TriportChange::Active,
+        )),
+        Box::new(MinSegment::TurnTo(-85f64.to_radians())),
+        Box::new(Ram::new(0.3, Duration::from_millis(800))),
+        Box::new(MinSegment::TurnTo(-55f64.to_radians())),
+        Box::new(Ram::new(0.4, Duration::from_millis(700))),
+        Box::new(MinSegment::TurnTo(-50f64.to_radians())),
+        Box::new(Ram::new(0.4, Duration::from_millis(2800))),
+        Box::new(MinSegment::TurnTo(0f64.to_radians())),
+        Box::new(Ram::new(0.4, Duration::from_millis(1000))),
+        Box::new(Ram::new(-0.2, Duration::from_millis(500))),
+        Box::new(Ram::new(0.2, Duration::from_millis(500))),
+        Box::new(MinSegment::TurnTo(0.55)),
+        Box::new(ChangeTriports::new(
+            vec![out_wing],
+            crate::triports::TriportChange::Inactive,
+        )),
+        Box::new(TimedSegment::new(
+            Box::new(Nop {}),
+            Duration::from_millis(200),
+        )),
+        Box::new(Ram::new(0.80, Duration::from_millis(500))),
+        Box::new(Ram::new(-0.2, Duration::from_millis(500))),
+        Box::new(MinSegment::TurnTo(-170f64.to_radians())),
+        Box::new(Ram::new(0.6, Duration::from_millis(1000))),
+        Box::new(MinSegment::TurnTo(135f64.to_radians())),
+        Box::new(Ram::new(0.4, Duration::from_millis(1700))),
+        Box::new(MinSegment::TurnTo(-45f64.to_radians())),
+        blocker_up(brain),
+        Box::new(Ram::new(0.2, Duration::from_millis(1000))),
+    ])
 }

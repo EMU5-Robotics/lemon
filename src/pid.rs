@@ -1,73 +1,59 @@
-use std::{marker::PhantomData, time::Instant};
-use uom::{si::*, ConstZero, ConversionFactor};
+use std::time::Instant;
 
-pub struct Pid<T: Dimension + ?Sized, O: Dimension + ?Sized> {
-	pub kp: f64,
-	pub ki: f64,
-	pub kd: f64,
-	target: Quantity<T, SI<f64>, f64>,
-	integral: f64,
-	prev_err: f64,
-	time: Instant,
-	last_output: Quantity<O, SI<f64>, f64>,
-	output: PhantomData<O>,
+pub struct Pid {
+    pub kp: f64,
+    pub ki: f64,
+    pub kd: f64,
+    target: f64,
+    ki_integral: f64,
+    last_error: f64,
+    last_update: Instant,
+    first_update: bool,
 }
 
-impl<T: Dimension + ?Sized, O: Dimension + ?Sized> Pid<T, O> {
-	pub fn new(kp: f64, ki: f64, kd: f64, target: Quantity<T, SI<f64>, f64>) -> Self {
-		Self {
-			kp,
-			ki,
-			kd,
-			target,
-			integral: ConstZero::ZERO,
-			prev_err: ConstZero::ZERO,
-			time: Instant::now(),
-			last_output: ConstZero::ZERO,
-			output: PhantomData,
-		}
-	}
+impl Pid {
+    pub fn new(kp: f64, ki: f64, kd: f64) -> Self {
+        Self {
+            kp,
+            ki,
+            kd,
+            target: 0.0,
+            ki_integral: 0.0,
+            last_error: 0.0,
+            last_update: Instant::now(),
+            first_update: true,
+        }
+    }
+    pub fn set_target(&mut self, target: f64) {
+        self.target = target;
+    }
+    pub fn poll(&mut self, pv: f64) -> f64 {
+        let now = Instant::now();
+        let diff_t = now.duration_since(self.last_update).as_secs_f64();
 
-	pub fn step(&mut self, pv: Quantity<T, SI<f64>, f64>) -> Quantity<O, SI<f64>, f64> {
-		let pv = pv.value;
+        let error = self.target - pv;
+        // clegg integration (avoid integral windup)
+        // see (wikipedia.org/wiki/Integral_windup)
+        if self.last_error.signum() != error.signum() {
+            self.ki_integral = 0.0;
+        }
 
-		let dt = self.time.elapsed().as_secs_f64();
-		self.time = Instant::now();
+        // bumpless operation see (wikipedia.org/wiki/Proportional-integral-derivative_controller#Bumpless_operation)
+        self.ki_integral += self.ki * error * diff_t;
+        self.ki_integral = self.ki_integral.clamp(-1.0, 1.0);
 
-		let err = self.target.value - pv;
+        let output = self.kp * error + self.ki_integral + self.kd * (error - self.last_error);
 
-		let prop_term = self.kp * err;
+        self.last_error = error;
+        self.last_update = now;
 
-		// modifications to integration are done to prevent integral windup
-		// see https://en.wikipedia.org/wiki/Integral_windup
-
-		// conditional integration
-		if err.abs().value() < self.ki.value() {
-			self.integral += self.ki * err * dt;
-		}
-		// clegg integrator
-		if (self.prev_err * err).value() < 0.0 {
-			self.integral = ConstZero::ZERO;
-		}
-
-		let deriv_term = self.kd * (err - self.prev_err) / dt;
-		let output = Quantity {
-			dimension: PhantomData,
-			units: PhantomData,
-			value: prop_term + self.integral.value() + deriv_term,
-		};
-		self.last_output = output;
-		output
-	}
-
-	pub fn reset(&mut self) {
-		self.integral = 0.0;
-		self.time = Instant::now();
-	}
-
-	pub fn change_target(&mut self, target: Quantity<T, SI<f64>, f64>) {
-		self.target = target;
-	}
+        output
+    }
+    pub fn reset(&mut self) {
+        log::info!("reset called");
+        self.first_update = true;
+        self.ki_integral = 0.0;
+        self.last_error = 0.0;
+        self.last_update = Instant::now();
+    }
 }
-
-pub type AnglePid = Pid<angle::Dimension, angular_velocity::Dimension>;
